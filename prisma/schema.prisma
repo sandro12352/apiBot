@@ -1,0 +1,664 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum BotMode {
+  TEST
+  LIVE
+}
+
+enum MembershipRole {
+  TENANT_ADMIN
+  MEMBER
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentConcept {
+  SUBSCRIPTION
+  SETUP
+  CUSTOMIZATION
+  MAINTENANCE
+  OTHER
+}
+
+enum WhatsappConnectionType {
+  CLOUD_API
+  COEXISTENCE
+}
+
+enum WhatsappConnectionStatus {
+  PENDING
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  TOKEN_EXPIRED
+  NOT_ELIGIBLE
+}
+
+enum AIProviderType {
+  OPENAI
+  ANTHROPIC
+  GEMINI
+}
+
+enum CredentialStatus {
+  PENDING
+  VALID
+  INVALID
+  QUOTA_EXCEEDED
+}
+
+enum KnowledgeSourceType {
+  TEXT
+  FAQ
+  PDF
+  DOCX
+  CSV
+  XLSX
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum CatalogItemStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  WON
+  LOST
+}
+
+enum LeadSource {
+  WHATSAPP
+  MANUAL
+}
+
+enum BotContactState {
+  ACTIVE
+  PAUSED
+}
+
+enum ContextRole {
+  USER
+  ASSISTANT
+}
+
+enum OrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  CANCELLED
+}
+
+enum EventProcessingStatus {
+  RECEIVED
+  QUEUED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum UsageEventType {
+  AI_RESPONSE
+  AI_TRANSCRIPTION
+  AI_IMAGE
+  AI_EMBEDDING
+  WHATSAPP_MESSAGE
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+}
+
+// ============================================================
+// Identidad y multiempresa
+// ============================================================
+
+model User {
+  id                 String     @id @default(uuid())
+  email              String     @unique
+  passwordHash       String?
+  identityProvider   String?
+  identityProviderId String?
+  status             UserStatus @default(PENDING_VERIFICATION)
+  isPlatformAdmin    Boolean    @default(false)
+  emailVerifiedAt    DateTime?
+  privacyAcceptedAt  DateTime
+  termsAcceptedAt    DateTime
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  memberships TenantMembership[]
+  auditLogs   AuditLog[]
+
+  @@unique([identityProvider, identityProviderId])
+  @@map("users")
+}
+
+model Tenant {
+  id                    String       @id @default(uuid())
+  name                  String
+  slug                  String       @unique
+  status                TenantStatus @default(ACTIVE)
+  botMode               BotMode      @default(TEST)
+  botEnabled            Boolean      @default(false)
+  aiNoticeText          String?
+  // Límites de gasto de IA (null = sin límite)
+  dailySpendLimit       Decimal?     @db.Decimal(12, 4)
+  monthlySpendLimit     Decimal?     @db.Decimal(12, 4)
+  spendAlertThreshold   Int          @default(80)
+  spendCurrency         String       @default("USD")
+  spendLimitReachedAt   DateTime?
+  // Límite de mensajes por contacto dentro de una ventana de tiempo
+  contactMessageLimit   Int?
+  contactLimitWindowSec Int?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  memberships           TenantMembership[]
+  subscriptions         Subscription[]
+  payments              Payment[]
+  whatsappConnections   WhatsappConnection[]
+  assistants            Assistant[]
+  aiProviderCredentials AiProviderCredential[]
+  knowledgeSources      KnowledgeSource[]
+  knowledgeChunks       KnowledgeChunk[]
+  catalogItems          CatalogItem[]
+  leads                 Lead[]
+  testNumbers           TestNumber[]
+  conversationContexts  ConversationContext[]
+  orders                Order[]
+  messageProcessing     MessageProcessingState[]
+  usageEvents           UsageEvent[]
+  webhookEvents         WebhookEvent[]
+  auditLogs             AuditLog[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+model TenantMembership {
+  id          String         @id @default(uuid())
+  tenantId    String
+  userId      String
+  role        MembershipRole @default(MEMBER)
+  permissions String[]       @default([])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
+
+// ============================================================
+// Suscripciones y pagos
+// ============================================================
+
+model Subscription {
+  id                 String             @id @default(uuid())
+  tenantId           String
+  plan               String
+  status             SubscriptionStatus @default(TRIAL)
+  startedAt          DateTime           @default(now())
+  currentPeriodStart DateTime?
+  renewsAt           DateTime?
+  endsAt             DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([tenantId, status])
+  @@index([renewsAt])
+  @@map("subscriptions")
+}
+
+// Nunca almacena datos de tarjeta.
+model Payment {
+  id             String         @id @default(uuid())
+  tenantId       String
+  subscriptionId String?
+  concept        PaymentConcept @default(SUBSCRIPTION)
+  amount         Decimal        @db.Decimal(12, 2)
+  currency       String
+  status         PaymentStatus  @default(PENDING)
+  externalRef    String?
+  paidAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([subscriptionId])
+  @@index([externalRef])
+  @@map("payments")
+}
+
+// ============================================================
+// WhatsApp
+// ============================================================
+
+model WhatsappConnection {
+  id                   String                   @id @default(uuid())
+  tenantId             String
+  type                 WhatsappConnectionType   @default(CLOUD_API)
+  status               WhatsappConnectionStatus @default(PENDING)
+  statusDetail         String?
+  // Identificadores de Meta
+  wabaId               String
+  phoneNumberId        String                   @unique
+  displayPhoneNumber   String?
+  businessId           String?
+  // Credenciales protegidas (cifradas en la aplicación)
+  encryptedAccessToken String?
+  tokenExpiresAt       DateTime?
+  botEnabled           Boolean                  @default(true)
+  lastConnectionTestAt DateTime?
+  lastConnectionTestOk Boolean?
+  connectedAt          DateTime?
+  disconnectedAt       DateTime?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assistants        Assistant[]
+  leads             Lead[]
+  testNumbers       TestNumber[]
+  messageProcessing MessageProcessingState[]
+  webhookEvents     WebhookEvent[]
+
+  @@index([tenantId, status])
+  @@map("whatsapp_connections")
+}
+
+model TestNumber {
+  id           String   @id @default(uuid())
+  tenantId     String
+  connectionId String?
+  phoneNumber  String
+  label        String?
+  createdAt    DateTime @default(now())
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection WhatsappConnection? @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, phoneNumber])
+  @@index([connectionId])
+  @@map("test_numbers")
+}
+
+// ============================================================
+// Asistente e IA
+// ============================================================
+
+model Assistant {
+  id            String          @id @default(uuid())
+  tenantId      String
+  connectionId  String?
+  name          String
+  instructions  String
+  language      String          @default("es")
+  tone          String?
+  businessRules String?
+  limits        Json?
+  aiProvider    AIProviderType?
+  aiModel       String?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection WhatsappConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, isActive])
+  @@index([connectionId])
+  @@map("assistants")
+}
+
+// BYOK: la clave se guarda cifrada con una clave maestra externa a la base de datos.
+model AiProviderCredential {
+  id              String           @id @default(uuid())
+  tenantId        String
+  provider        AIProviderType
+  encryptedApiKey String
+  maskedKey       String
+  status          CredentialStatus @default(PENDING)
+  statusDetail    String?
+  lastValidatedAt DateTime?
+  preferredModel  String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@map("ai_provider_credentials")
+}
+
+// ============================================================
+// Conocimiento y catálogo
+// ============================================================
+
+model KnowledgeSource {
+  id          String              @id @default(uuid())
+  tenantId    String
+  type        KnowledgeSourceType
+  title       String
+  content     String?
+  storageKey  String?
+  fileName    String?
+  mimeType    String?
+  sizeBytes   Int?
+  fileHash    String?
+  status      ProcessingStatus    @default(PENDING)
+  errorDetail Json?
+  isActive    Boolean             @default(true)
+  processedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chunks KnowledgeChunk[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, type])
+  @@index([tenantId, fileHash])
+  @@map("knowledge_sources")
+}
+
+// Pendiente: la columna de embedding (pgvector) se añadirá cuando se confirme
+// la extensión, el modelo de embeddings y su dimensión.
+model KnowledgeChunk {
+  id         String   @id @default(uuid())
+  tenantId   String
+  sourceId   String
+  chunkIndex Int
+  content    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, chunkIndex])
+  @@index([tenantId])
+  @@map("knowledge_chunks")
+}
+
+model CatalogItem {
+  id          String            @id @default(uuid())
+  tenantId    String
+  sku         String?
+  name        String
+  description String?
+  price       Decimal           @db.Decimal(12, 2)
+  currency    String
+  category    String?
+  attributes  Json?
+  status      CatalogItemStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, status])
+  @@index([tenantId, category])
+  @@index([tenantId, name])
+  @@map("catalog_items")
+}
+
+// ============================================================
+// Leads, contexto y pedidos
+// ============================================================
+
+model Lead {
+  id             String          @id @default(uuid())
+  tenantId       String
+  connectionId   String
+  whatsappNumber String
+  firstName      String?
+  lastName       String?
+  email          String?
+  interest       String?
+  need           String?
+  city           String?
+  source         LeadSource      @default(WHATSAPP)
+  status         LeadStatus      @default(NEW)
+  botState       BotContactState @default(ACTIVE)
+  pausedAt       DateTime?
+  isTest         Boolean         @default(false)
+  aiNoticeSentAt DateTime?
+  lastActivityAt DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection WhatsappConnection    @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  context    ConversationContext[]
+  orders     Order[]
+
+  @@unique([connectionId, whatsappNumber])
+  @@index([tenantId, status])
+  @@index([tenantId, botState])
+  @@index([tenantId, isTest])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, interest])
+  @@index([lastActivityAt])
+  @@map("leads")
+}
+
+// Mensajes recientes cifrados (máx. 20 por contacto, 7 días desde la última
+// actividad). El límite y el borrado se aplican en la aplicación / job programado.
+// No se expone mediante ninguna API.
+model ConversationContext {
+  id               String      @id @default(uuid())
+  tenantId         String
+  leadId           String
+  role             ContextRole
+  encryptedContent String
+  createdAt        DateTime    @default(now())
+  expiresAt        DateTime
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@index([expiresAt])
+  @@index([tenantId])
+  @@map("conversation_context")
+}
+
+// Solicitud de pedido: no es una venta confirmada.
+model Order {
+  id              String      @id @default(uuid())
+  tenantId        String
+  leadId          String
+  status          OrderStatus @default(PENDING_CONFIRMATION)
+  currency        String
+  deliveryName    String?
+  deliveryPhone   String?
+  deliveryAddress String?
+  deliveryCity    String?
+  deliveryNotes   String?
+  isTest          Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  items  OrderItem[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([leadId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String   @id @default(uuid())
+  orderId       String
+  catalogItemId String?
+  // Instantánea histórica: no cambia si el catálogo se reimporta.
+  sku           String?
+  name          String
+  quantity      Int
+  unitPrice     Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  catalogItem CatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([catalogItemId])
+  @@map("order_items")
+}
+
+// ============================================================
+// Procesamiento, consumo y auditoría
+// ============================================================
+
+model MessageProcessingState {
+  id                String                @id @default(uuid())
+  tenantId          String
+  connectionId      String
+  externalMessageId String
+  idempotencyKey    String
+  status            EventProcessingStatus @default(RECEIVED)
+  attempts          Int                   @default(0)
+  lastError         String?
+  responseSentAt    DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection WhatsappConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalMessageId])
+  @@unique([idempotencyKey])
+  @@index([tenantId, status])
+  @@map("message_processing_state")
+}
+
+model UsageEvent {
+  id            String          @id @default(uuid())
+  tenantId      String
+  type          UsageEventType
+  provider      AIProviderType?
+  model         String?
+  inputTokens   Int?
+  outputTokens  Int?
+  messageCount  Int             @default(1)
+  estimatedCost Decimal?        @db.Decimal(12, 6)
+  currency      String?
+  isTest        Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, type, createdAt])
+  @@map("usage_events")
+}
+
+model WebhookEvent {
+  id           String                @id @default(uuid())
+  tenantId     String?
+  connectionId String?
+  externalId   String
+  type         String
+  status       EventProcessingStatus @default(RECEIVED)
+  attempts     Int                   @default(0)
+  lastError    String?
+  receivedAt   DateTime              @default(now())
+  processedAt  DateTime?
+
+  tenant     Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  connection WhatsappConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@unique([externalId, type])
+  @@index([status, receivedAt])
+  @@index([tenantId])
+  @@index([connectionId])
+  @@map("webhook_events")
+}
+
+// Sin secretos ni contenido de mensajes en `metadata`.
+model AuditLog {
+  id           String      @id @default(uuid())
+  actorUserId  String?
+  tenantId     String?
+  action       String
+  resourceType String
+  resourceId   String?
+  result       AuditResult
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+
+  actor  User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
