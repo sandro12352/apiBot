@@ -1,9 +1,9 @@
-import { UserEntity } from "../entities/user.entity";
-import { CreateUserDto } from "../dtos/create-user.dto";
+import type { NewUserData, UserEntity } from "../entities/user.entity";
+
 
 
 export abstract class UserDatasource {
-    abstract create(createUserDto: CreateUserDto): Promise<UserEntity>;
+    abstract create(data: NewUserData): Promise<UserEntity>;
 
     abstract getAll(): Promise<UserEntity[]>;
 

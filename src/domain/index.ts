@@ -6,3 +6,4 @@ export * from './repositories/user.repository';
 export * from './dtos/create-user.dto';
 export * from './services/user.service';
 export * from './errors/custom.error';
+export * from '../config/adapters/password-hasher';

@@ -1,5 +1,13 @@
 export type UserStatus = "PENDING_VERIFICATION" | "ACTIVE" | "SUSPENDED";
 
+// Datos necesarios para persistir un usuario nuevo (contraseña ya hasheada)
+export interface NewUserData {
+    email: string;
+    passwordHash: string;
+    privacyAcceptedAt: Date;
+    termsAcceptedAt: Date;
+}
+
 export class UserEntity {
     constructor(
         public readonly id: string,
@@ -15,6 +23,12 @@ export class UserEntity {
         public readonly createdAt: Date,
         public readonly updatedAt: Date,
     ) {}
+
+    // Versión segura para enviar al cliente (sin datos sensibles)
+    public toPublic() {
+        const { passwordHash, identityProviderId, ...publicData } = this;
+        return publicData;
+    }
 
 
     public static fromObject(object: { [key: string]: any }): UserEntity {

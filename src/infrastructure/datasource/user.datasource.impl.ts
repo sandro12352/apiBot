@@ -1,27 +1,33 @@
 import { prisma } from "../../data/postgres";
-import { CreateUserDto, UserDatasource, UserEntity } from "../../domain";
+import { type NewUserData, UserDatasource, UserEntity } from "../../domain";
 
 export class UserDatasourceImpl extends UserDatasource {
 
-    create(createUserDto: CreateUserDto): Promise<UserEntity> {
-        throw new Error("Method not implemented.");
+    async create(data: NewUserData): Promise<UserEntity> {
+        const user = await prisma.user.create({
+            data: {
+                email: data.email,
+                passwordHash: data.passwordHash,
+                privacyAcceptedAt: data.privacyAcceptedAt,
+                termsAcceptedAt: data.termsAcceptedAt,
+            },
+        });
+        return UserEntity.fromObject(user);
     }
 
     async getAll(): Promise<UserEntity[]> {
         const users = await prisma.user.findMany();
         return users.map(user => UserEntity.fromObject(user));
-        
     }
 
     async findById(id: string): Promise<UserEntity | null> {
         const user = await prisma.user.findUnique({ where: { id } });
-        if (!user) throw 'User not found';
-        return UserEntity.fromObject(user);
+        return user ? UserEntity.fromObject(user) : null;
     }
 
-    findByEmail(email: string): Promise<UserEntity | null> {
-        throw new Error("Method not implemented.");
+    async findByEmail(email: string): Promise<UserEntity | null> {
+        const user = await prisma.user.findUnique({ where: { email } });
+        return user ? UserEntity.fromObject(user) : null;
     }
-
 
 }
