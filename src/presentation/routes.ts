@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { AuthRoutes } from "./auth/AuthRoutes";
 import { UserRoutes } from "./user/UserRoutes";
+import { AdminRoutes } from "./admin/AdminRoutes";
 
 
 export class AppRoutes {
@@ -10,6 +11,7 @@ export class AppRoutes {
 
         router.use('/auth', AuthRoutes.routes);
         router.use('/user', UserRoutes.routes);
+        router.use('/admin', AdminRoutes.routes);
 
         return router;
 

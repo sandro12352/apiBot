@@ -1,4 +1,4 @@
-import type { NewUserData, UserEntity } from "../entities/user.entity";
+import type { NewUserData, UpdateUserData, UserEntity } from "../entities/user.entity";
 
 
 
@@ -10,5 +10,9 @@ export abstract class UserDatasource {
     abstract findById(id: string): Promise<UserEntity | null>;
 
     abstract findByEmail(email: string): Promise<UserEntity | null>;
+
+    abstract update(id: string, data: UpdateUserData): Promise<UserEntity>;
+
+    abstract delete(id: string): Promise<void>;
 
 }

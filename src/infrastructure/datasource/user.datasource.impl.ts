@@ -1,7 +1,8 @@
 import { prisma } from "../../data/postgres";
-import { type NewUserData, UserDatasource, UserEntity } from "../../domain";
+import { type NewUserData, type UpdateUserData, UserDatasource, UserEntity } from "../../domain";
 
 export class UserDatasourceImpl extends UserDatasource {
+    
 
     async create(data: NewUserData): Promise<UserEntity> {
         const user = await prisma.user.create({
@@ -30,4 +31,18 @@ export class UserDatasourceImpl extends UserDatasource {
         return user ? UserEntity.fromObject(user) : null;
     }
 
+    async update(id: string, data: UpdateUserData): Promise<UserEntity> {
+        const user = await prisma.user.update({
+            where: { id },
+            data: {
+                ...(data.email !== undefined && { email: data.email }),
+                ...(data.passwordHash !== undefined && { passwordHash: data.passwordHash }),
+            },
+        });
+        return UserEntity.fromObject(user);
+    }
+
+    delete(id: string): Promise<void> {
+        return prisma.user.delete({ where: { id } }).then(() => {});
+    }
 }

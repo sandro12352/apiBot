@@ -1,11 +1,18 @@
 export type UserStatus = "PENDING_VERIFICATION" | "ACTIVE" | "SUSPENDED";
 
-// Datos necesarios para persistir un usuario nuevo (contraseña ya hasheada)
+// Datos para persistir un usuario nuevo. passwordHash y la aceptación de términos
+// son null cuando la cuenta la crea un administrador y el cliente aún no las ha definido.
 export interface NewUserData {
     email: string;
-    passwordHash: string;
-    privacyAcceptedAt: Date;
-    termsAcceptedAt: Date;
+    passwordHash: string | null;
+    privacyAcceptedAt: Date | null;
+    termsAcceptedAt: Date | null;
+}
+
+// Datos que se pueden actualizar de un usuario (contraseña ya hasheada)
+export interface UpdateUserData {
+    email?: string | undefined;
+    passwordHash?: string | undefined;
 }
 
 export class UserEntity {
@@ -18,8 +25,8 @@ export class UserEntity {
         public readonly status: UserStatus,
         public readonly isPlatformAdmin: boolean,
         public readonly emailVerifiedAt: Date | null,
-        public readonly privacyAcceptedAt: Date,
-        public readonly termsAcceptedAt: Date,
+        public readonly privacyAcceptedAt: Date | null,
+        public readonly termsAcceptedAt: Date | null,
         public readonly createdAt: Date,
         public readonly updatedAt: Date,
     ) {}
@@ -51,8 +58,6 @@ export class UserEntity {
         if (!email) throw new Error("Missing email");
         if (!status) throw new Error("Missing status");
         if (isPlatformAdmin === undefined) throw new Error("Missing isPlatformAdmin");
-        if (!privacyAcceptedAt) throw new Error("Missing privacyAcceptedAt");
-        if (!termsAcceptedAt) throw new Error("Missing termsAcceptedAt");
         if (!createdAt) throw new Error("Missing createdAt");
         if (!updatedAt) throw new Error("Missing updatedAt");
 
@@ -65,8 +70,8 @@ export class UserEntity {
             status,
             isPlatformAdmin,
             emailVerifiedAt ?? null,
-            privacyAcceptedAt,
-            termsAcceptedAt,
+            privacyAcceptedAt ?? null,
+            termsAcceptedAt ?? null,
             createdAt,
             updatedAt,
         );

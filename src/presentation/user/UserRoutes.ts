@@ -4,6 +4,7 @@ import { UserDatasourceImpl } from "../../infrastructure/datasource/user.datasou
 import { UserRepositoryImpl } from "../../infrastructure/repositories/user.repository.impl";
 import { UserService } from "../../domain";
 import { BcryptAdapter } from "../../config/adapters/bcrypt.adapter";
+import { buildAuthMiddleware } from "../auth/auth.factory";
 
 
 
@@ -15,8 +16,15 @@ export class UserRoutes {
         const userService = new UserService(userRepository, new BcryptAdapter());
         const userController = new UserController(userService);
 
-        router.post('/create', userController.createUser);
+        const authMiddleware = buildAuthMiddleware();
+
+        // Administración de usuarios: solo administradores de plataforma.
+        // El alta de clientes se hace en POST /admin/clients.
+        router.use(authMiddleware.authenticate, authMiddleware.requirePlatformAdmin);
+
         router.get('/todos', userController.getUsers);
+        router.patch('/:id', userController.updateUser);
+        router.delete('/:id', userController.deleteUser);
 
         return router;
     }

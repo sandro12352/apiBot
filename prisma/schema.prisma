@@ -22,6 +22,11 @@ enum UserStatus {
   SUSPENDED
 }
 
+enum UserTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 enum TenantStatus {
   ACTIVE
   SUSPENDED
@@ -173,16 +178,34 @@ model User {
   status             UserStatus @default(PENDING_VERIFICATION)
   isPlatformAdmin    Boolean    @default(false)
   emailVerifiedAt    DateTime?
-  privacyAcceptedAt  DateTime
-  termsAcceptedAt    DateTime
+  privacyAcceptedAt  DateTime?
+  termsAcceptedAt    DateTime?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
   memberships TenantMembership[]
   auditLogs   AuditLog[]
+  tokens      UserToken[]
 
   @@unique([identityProvider, identityProviderId])
   @@map("users")
+}
+
+// Tokens de un solo uso (verificación de email, recuperación de contraseña).
+// Solo se guarda el hash SHA-256; el token en claro se envía por correo.
+model UserToken {
+  id        String        @id @default(uuid())
+  userId    String
+  type      UserTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("user_tokens")
 }
 
 model Tenant {

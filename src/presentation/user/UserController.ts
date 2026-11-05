@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { CreateUserDto, CustomError, type UserService } from "../../domain";
+import { CreateUserDto, CustomError, UpdateUserDto, type UserService } from "../../domain";
 
 
 export class UserController {
@@ -31,6 +31,29 @@ export class UserController {
         this.userService
             .create(createUserDto!)
             .then(user => res.status(201).json(user.toPublic()))
+            .catch(error => this.handleError(error, res));
+    }
+
+    public updateUser = (req: Request, res: Response) => {
+        const { id } = req.params;
+        if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
+
+        const [error, updateUserDto] = UpdateUserDto.create(req.body);
+        if (error) return res.status(400).json({ error });
+
+        this.userService
+            .update(id, updateUserDto!)
+            .then(user => res.json(user.toPublic()))
+            .catch(error => this.handleError(error, res));
+    }
+
+    public deleteUser = (req:Request,res:Response) => {
+        const {id} = req.params;
+        if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
+        if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
+        this.userService
+            .delete(id)
+            .then(() => res.status(204).send())
             .catch(error => this.handleError(error, res));
     }
 

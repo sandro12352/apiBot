@@ -29,4 +29,9 @@ export class CustomError extends Error {
     static internalServerError(message: string): CustomError {
         return new CustomError(500, message);
     }
+
+    // Errores al operar con la base de datos (el detalle se registra en el log, no se expone al cliente)
+    static databaseError(message: string = 'Database error'): CustomError {
+        return new CustomError(500, message);
+    }
 }

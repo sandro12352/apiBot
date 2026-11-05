@@ -1,4 +1,4 @@
-import type { NewUserData, UserDatasource, UserEntity, UserRepository } from "../../domain";
+import type { NewUserData, UpdateUserData, UserDatasource, UserEntity, UserRepository } from "../../domain";
 
 
 export class UserRepositoryImpl implements UserRepository {
@@ -18,6 +18,14 @@ export class UserRepositoryImpl implements UserRepository {
 
     findByEmail(email: string): Promise<UserEntity | null> {
         return this.userDatasource.findByEmail(email);
+    }
+
+    update(id: string, data: UpdateUserData): Promise<UserEntity> {
+        return this.userDatasource.update(id, data);
+    }
+
+    delete(id: string): Promise<void> {
+        return this.userDatasource.delete(id);
     }
 
 }
