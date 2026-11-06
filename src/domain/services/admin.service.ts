@@ -48,7 +48,16 @@ export class AdminService {
                 tenantSlug,
             });
 
-            await this.authService.sendAccountSetupEmail(account.user);
+            // La cuenta ya existe: si el correo falla, el administrador debe saberlo
+            // y reenviarlo, no volver a crear al cliente.
+            try {
+                await this.authService.sendAccountSetupEmail(account.user);
+            } catch {
+                throw CustomError.internalServerError(
+                    `Account created (user id ${account.user.id}) but the setup email could not be sent. ` +
+                    `Retry with POST /admin/users/${account.user.id}/setup-email`,
+                );
+            }
             return account;
         } catch (error) {
             this.handleError(error, 'createClient');

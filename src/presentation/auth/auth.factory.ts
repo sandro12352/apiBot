@@ -27,6 +27,7 @@ export const buildAuthService = (): AuthService => {
         emailSender,
         userService,
         envs.APP_URL,
+        envs.APP_NAME,
     );
 };
 

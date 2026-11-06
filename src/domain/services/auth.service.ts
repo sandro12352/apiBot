@@ -13,6 +13,7 @@ import type { UserEntity } from "../entities/user.entity";
 import { CustomError } from "../errors/custom.error";
 import type { AuthRepository } from "../repositories/auth.repository";
 import type { UserService } from "./user.service";
+import { renderAccountSetupEmail } from "../../templates/account-setup.template";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
@@ -32,6 +33,7 @@ export class AuthService {
         private readonly emailSender: EmailSender,
         private readonly userService: UserService,
         private readonly appUrl: string,
+        private readonly appName: string,
     ) {}
 
 
@@ -55,9 +57,9 @@ export class AuthService {
 
     // El envío no se espera ni propaga errores: así la respuesta no revela
     // (ni por tiempo ni por fallo) si el email existe.
-    private sendEmail(to: string, subject: string, text: string): void {
+    private sendEmail(to: string, subject: string, text: string, html?: string): void {
         this.emailSender
-            .send({ to, subject, text })
+            .send({ to, subject, text, ...(html ? { html } : {}) })
             .catch((error) => console.error('[AuthService.sendEmail]', error));
     }
 
@@ -138,17 +140,24 @@ export class AuthService {
     }
 
     // Cuenta creada por un administrador: envía el enlace para que el cliente defina
-    // su contraseña (reutiliza el flujo de reset). El correo se envía sin esperar.
+    // su contraseña (reutiliza el flujo de reset). A diferencia de los flujos públicos,
+    // aquí SÍ se espera al envío y se informa si falla: lo dispara un administrador
+    // de confianza, no hay riesgo de enumeración y necesita saber si el correo salió.
     async sendAccountSetupEmail(user: UserEntity): Promise<void> {
         try {
             const token = await this.issueToken(user.id, 'PASSWORD_RESET', ACCOUNT_SETUP_TTL_MS);
             const link = `${this.appUrl}/set-password?token=${token}`;
-            this.sendEmail(
-                user.email,
-                'Tu cuenta está lista: define tu contraseña',
-                `Tu cuenta ha sido creada. Define tu contraseña abriendo este enlace (válido 72 horas):
-${link}`,
-            );
+            const { subject, text, html } = renderAccountSetupEmail({
+                appName: this.appName,
+                link,
+                expiresInHours: ACCOUNT_SETUP_TTL_MS / (60 * 60 * 1000),
+            });
+            try {
+                await this.emailSender.send({ to: user.email, subject, text, html });
+            } catch (error) {
+                console.error('[AuthService.sendAccountSetupEmail] email failed', error);
+                throw CustomError.internalServerError('The account setup email could not be sent');
+            }
         } catch (error) {
             this.handleError(error, 'sendAccountSetupEmail');
         }

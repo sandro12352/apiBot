@@ -23,10 +23,9 @@ const main = async () => {
         return;
     }
 
+    // Espera al envío real; si falla lanza error y se muestra abajo
     await buildAuthService().sendAccountSetupEmail(UserEntity.fromObject(row));
-    // El correo se envía sin esperar: damos un margen antes de cerrar el proceso
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    console.log(`Administrador de plataforma listo: ${email}. Enlace de contraseña enviado.`);
+    console.log(`Administrador de plataforma listo: ${email}. Enlace de contraseña enviado por correo.`);
 };
 
 main()
