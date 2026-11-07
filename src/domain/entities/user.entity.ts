@@ -25,6 +25,7 @@ export class UserEntity {
         public readonly status: UserStatus,
         public readonly isPlatformAdmin: boolean,
         public readonly emailVerifiedAt: Date | null,
+        public readonly lockedUntil: Date | null,
         public readonly privacyAcceptedAt: Date | null,
         public readonly termsAcceptedAt: Date | null,
         public readonly createdAt: Date,
@@ -33,7 +34,7 @@ export class UserEntity {
 
     // Versión segura para enviar al cliente (sin datos sensibles)
     public toPublic() {
-        const { passwordHash, identityProviderId, ...publicData } = this;
+        const { passwordHash, identityProviderId, lockedUntil, ...publicData } = this;
         return publicData;
     }
 
@@ -48,6 +49,7 @@ export class UserEntity {
             status,
             isPlatformAdmin,
             emailVerifiedAt,
+            lockedUntil,
             privacyAcceptedAt,
             termsAcceptedAt,
             createdAt,
@@ -70,6 +72,7 @@ export class UserEntity {
             status,
             isPlatformAdmin,
             emailVerifiedAt ?? null,
+            lockedUntil ?? null,
             privacyAcceptedAt ?? null,
             termsAcceptedAt ?? null,
             createdAt,

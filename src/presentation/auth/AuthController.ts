@@ -4,11 +4,15 @@ import {
     CustomError,
     ForgotPasswordDto,
     LoginDto,
+    RefreshTokenDto,
     ResendVerificationDto,
     ResetPasswordDto,
     VerifyEmailDto,
     type AuthService,
+    type TenantService,
+    type UserService,
 } from "../../domain";
+import { requestMeta } from "../middlewares/auth.middleware";
 
 
 
@@ -17,6 +21,8 @@ export class AuthController {
 
     constructor(
         private readonly authService: AuthService,
+        private readonly userService: UserService,
+        private readonly tenantService: TenantService,
     ) {}
 
     private handleError = (error: unknown, res: Response) => {
@@ -43,8 +49,53 @@ export class AuthController {
         if (error) return res.status(400).json({ error });
 
         this.authService
-            .login(loginDto!)
-            .then(({ user, token }) => res.json({ user: user.toPublic(), token }))
+            .login(loginDto!, requestMeta(req))
+            .then(({ user, accessToken, refreshToken }) =>
+                res.json({ user: user.toPublic(), accessToken, refreshToken }))
+            .catch(error => this.handleError(error, res));
+    }
+
+    public refresh = (req: Request, res: Response) => {
+        const [error, dto] = RefreshTokenDto.create(req.body);
+        if (error) return res.status(400).json({ error });
+
+        this.authService
+            .refresh(dto!, requestMeta(req))
+            .then(tokens => res.json(tokens))
+            .catch(error => this.handleError(error, res));
+    }
+
+    // Requiere authenticate: cierra la sesión del access token usado
+    public logout = (req: Request, res: Response) => {
+        this.authService
+            .logout(req.user!.sessionId)
+            .then(() => res.status(204).send())
+            .catch(error => this.handleError(error, res));
+    }
+
+    public logoutAll = (req: Request, res: Response) => {
+        this.authService
+            .logoutAll(req.user!.id, requestMeta(req))
+            .then(() => res.status(204).send())
+            .catch(error => this.handleError(error, res));
+    }
+
+    // Usuario autenticado y sus empresas con su rol (el frontend elige el tenantId)
+    public me = (req: Request, res: Response) => {
+        Promise.all([
+            this.userService.getById(req.user!.id),
+            this.tenantService.getForUser(req.user!.id),
+        ])
+            .then(([user, tenants]) => res.json({
+                user: user.toPublic(),
+                tenants: tenants.map(({ tenant, role }) => ({
+                    id: tenant.id,
+                    name: tenant.name,
+                    slug: tenant.slug,
+                    status: tenant.status,
+                    role,
+                })),
+            }))
             .catch(error => this.handleError(error, res));
     }
 

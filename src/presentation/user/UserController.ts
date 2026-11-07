@@ -1,7 +1,8 @@
 import type { Request, Response } from "express";
-import { CreateUserDto, CustomError, UpdateUserDto, type UserService } from "../../domain";
+import { CustomError, UpdateUserDto, type UserService } from "../../domain";
 
 
+// Administración de usuarios (montado en /admin/users, solo administradores de plataforma)
 export class UserController {
     constructor(
         private readonly userService: UserService,
@@ -23,17 +24,6 @@ export class UserController {
             .catch(error => this.handleError(error, res));
     }
 
-
-    public createUser = (req: Request, res: Response) => {
-        const [error, createUserDto] = CreateUserDto.create(req.body);
-        if (error) return res.status(400).json({ error });
-
-        this.userService
-            .create(createUserDto!)
-            .then(user => res.status(201).json(user.toPublic()))
-            .catch(error => this.handleError(error, res));
-    }
-
     public updateUser = (req: Request, res: Response) => {
         const { id } = req.params;
         if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
@@ -42,17 +32,17 @@ export class UserController {
         if (error) return res.status(400).json({ error });
 
         this.userService
-            .update(id, updateUserDto!)
+            .update(id, updateUserDto!, req.user!.id)
             .then(user => res.json(user.toPublic()))
             .catch(error => this.handleError(error, res));
     }
 
-    public deleteUser = (req:Request,res:Response) => {
-        const {id} = req.params;
+    public deleteUser = (req: Request, res: Response) => {
+        const { id } = req.params;
         if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
-        if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
+
         this.userService
-            .delete(id)
+            .delete(id, req.user!.id)
             .then(() => res.status(204).send())
             .catch(error => this.handleError(error, res));
     }

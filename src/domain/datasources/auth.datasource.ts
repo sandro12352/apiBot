@@ -6,6 +6,12 @@ import type { UserEntity } from "../entities/user.entity";
 export abstract class AuthDatasource {
     abstract findByEmail(email: string): Promise<UserEntity | null>;
 
+    // Suma un intento fallido; al llegar a maxAttempts bloquea la cuenta hasta lockUntil
+    // y reinicia el contador. Devuelve true si la cuenta quedó bloqueada en esta llamada.
+    abstract registerFailedLogin(userId: string, maxAttempts: number, lockUntil: Date): Promise<boolean>;
+
+    abstract resetFailedLogins(userId: string): Promise<void>;
+
     // Invalida los tokens pendientes del mismo tipo y crea el nuevo
     abstract createUserToken(data: NewUserTokenData): Promise<void>;
 

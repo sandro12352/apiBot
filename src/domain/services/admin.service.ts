@@ -4,6 +4,8 @@ import type { CreateClientDto } from "../dtos/create-client.dto";
 import { CustomError } from "../errors/custom.error";
 import type { AdminRepository } from "../repositories/admin.repository";
 import type { UserRepository } from "../repositories/user.repository";
+import { AuditAction } from "../entities/audit.entity";
+import type { AuditService } from "./audit.service";
 import type { AuthService } from "./auth.service";
 
 const slugify = (name: string): string =>
@@ -22,6 +24,7 @@ export class AdminService {
         private readonly adminRepository: AdminRepository,
         private readonly userRepository: UserRepository,
         private readonly authService: AuthService,
+        private readonly auditService: AuditService,
     ) {}
 
 
@@ -34,7 +37,7 @@ export class AdminService {
 
     // Alta manual de un cliente: crea usuario sin contraseña + empresa + membresía
     // y le envía el enlace para definir su contraseña.
-    async createClient(dto: CreateClientDto): Promise<ClientAccount> {
+    async createClient(dto: CreateClientDto, actorUserId: string): Promise<ClientAccount> {
         try {
             const exists = await this.userRepository.findByEmail(dto.email);
             if (exists) throw CustomError.badRequest('User with this email already exists');
@@ -46,6 +49,16 @@ export class AdminService {
                 email: dto.email,
                 tenantName: dto.tenantName,
                 tenantSlug,
+            });
+
+            await this.auditService.record({
+                actorUserId,
+                tenantId: account.tenantId,
+                action: AuditAction.ADMIN_CLIENT_CREATE,
+                resourceType: 'tenant',
+                resourceId: account.tenantId,
+                result: 'SUCCESS',
+                metadata: { userId: account.user.id },
             });
 
             // La cuenta ya existe: si el correo falla, el administrador debe saberlo

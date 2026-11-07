@@ -170,22 +170,26 @@ enum AuditResult {
 // ============================================================
 
 model User {
-  id                 String     @id @default(uuid())
-  email              String     @unique
-  passwordHash       String?
-  identityProvider   String?
-  identityProviderId String?
-  status             UserStatus @default(PENDING_VERIFICATION)
-  isPlatformAdmin    Boolean    @default(false)
-  emailVerifiedAt    DateTime?
-  privacyAcceptedAt  DateTime?
-  termsAcceptedAt    DateTime?
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  id                  String     @id @default(uuid())
+  email               String     @unique
+  passwordHash        String?
+  identityProvider    String?
+  identityProviderId  String?
+  status              UserStatus @default(PENDING_VERIFICATION)
+  isPlatformAdmin     Boolean    @default(false)
+  emailVerifiedAt     DateTime?
+  // Protección frente a fuerza bruta (bloqueo temporal por cuenta)
+  failedLoginAttempts Int        @default(0)
+  lockedUntil         DateTime?
+  privacyAcceptedAt   DateTime?
+  termsAcceptedAt     DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   memberships TenantMembership[]
   auditLogs   AuditLog[]
   tokens      UserToken[]
+  sessions    Session[]
 
   @@unique([identityProvider, identityProviderId])
   @@map("users")
@@ -206,6 +210,28 @@ model UserToken {
 
   @@index([userId, type])
   @@map("user_tokens")
+}
+
+// Sesión de login: guarda solo el hash del refresh token. Cada renovación
+// revoca la sesión y crea otra (rotación); reutilizar un refresh ya rotado
+// revoca todas las sesiones del usuario.
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  replacedById     String?
+  userAgent        String?
+  ip               String?
+  lastUsedAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
 
 model Tenant {

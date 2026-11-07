@@ -8,10 +8,15 @@ import type { LoginDto } from "../dtos/login.dto";
 import type { ResendVerificationDto } from "../dtos/resend-verification.dto";
 import type { ResetPasswordDto } from "../dtos/reset-password.dto";
 import type { VerifyEmailDto } from "../dtos/verify-email.dto";
+import type { RefreshTokenDto } from "../dtos/refresh-token.dto";
+import { AuditAction } from "../entities/audit.entity";
+import type { RequestMeta } from "../entities/session.entity";
 import type { UserTokenType } from "../entities/user-token.entity";
 import type { UserEntity } from "../entities/user.entity";
 import { CustomError } from "../errors/custom.error";
 import type { AuthRepository } from "../repositories/auth.repository";
+import type { SessionRepository } from "../repositories/session.repository";
+import type { AuditService } from "./audit.service";
 import type { UserService } from "./user.service";
 import { renderAccountSetupEmail } from "../../templates/account-setup.template";
 
@@ -19,22 +24,58 @@ const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const ACCOUNT_SETUP_TTL_MS = 72 * 60 * 60 * 1000;
 const INVALID_TOKEN_MESSAGE = 'Invalid or expired token';
+const INVALID_SESSION_MESSAGE = 'Invalid or expired session';
+const LOCKED_MESSAGE = 'Too many failed attempts. Try again later';
 
 const hashToken = (token: string): string =>
     createHash("sha256").update(token).digest("hex");
+
+export interface AuthConfig {
+    appUrl: string;
+    appName: string;
+    refreshTokenTtlDays: number;
+    loginMaxAttempts: number;
+    loginLockMinutes: number;
+}
+
+export interface AuthTokens {
+    accessToken: string;
+    refreshToken: string;
+}
 
 
 export class AuthService {
 
     constructor(
         private readonly authRepository: AuthRepository,
+        private readonly sessionRepository: SessionRepository,
         private readonly passwordHasher: PasswordHasher,
         private readonly tokenSigner: TokenSigner,
         private readonly emailSender: EmailSender,
         private readonly userService: UserService,
-        private readonly appUrl: string,
-        private readonly appName: string,
+        private readonly auditService: AuditService,
+        private readonly config: AuthConfig,
     ) {}
+
+    private get appUrl(): string { return this.config.appUrl; }
+    private get appName(): string { return this.config.appName; }
+
+    // Crea la sesión (refresh token opaco, solo se guarda su hash) y firma el access token
+    private async createSession(userId: string, meta: RequestMeta): Promise<AuthTokens> {
+        const refreshToken = randomBytes(32).toString("hex");
+        const session = await this.sessionRepository.create({
+            userId,
+            refreshTokenHash: hashToken(refreshToken),
+            expiresAt: this.refreshExpiry(),
+            userAgent: meta.userAgent,
+            ip: meta.ip,
+        });
+        return { accessToken: this.tokenSigner.sign({ id: userId, sid: session.id }), refreshToken };
+    }
+
+    private refreshExpiry(): Date {
+        return new Date(Date.now() + this.config.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
+    }
 
 
     private handleError(error: unknown, action: string): never {
@@ -90,25 +131,146 @@ export class AuthService {
         return user;
     }
 
-    async login(loginDto: LoginDto): Promise<{ user: UserEntity; token: string }> {
+    async login(loginDto: LoginDto, meta: RequestMeta): Promise<{ user: UserEntity } & AuthTokens> {
         try {
             const user = await this.authRepository.findByEmail(loginDto.email);
 
             // Mismo mensaje si el email no existe, el usuario no tiene contraseña
             // (cuenta de proveedor externo) o la contraseña es incorrecta,
             // para no revelar qué emails están registrados.
-            if (!user || !user.passwordHash) throw CustomError.unauthorized('Invalid credentials');
+            if (!user || !user.passwordHash) {
+                await this.auditLogin(null, 'FAILURE', 'invalid_credentials', meta);
+                throw CustomError.unauthorized('Invalid credentials');
+            }
+
+            // Cuenta bloqueada temporalmente: no se comprueba la contraseña
+            if (user.lockedUntil && user.lockedUntil > new Date()) {
+                await this.auditLogin(user.id, 'FAILURE', 'locked', meta);
+                throw CustomError.tooManyRequests(LOCKED_MESSAGE);
+            }
 
             const isMatch = await this.passwordHasher.compare(loginDto.password, user.passwordHash);
-            if (!isMatch) throw CustomError.unauthorized('Invalid credentials');
+            if (!isMatch) {
+                const lockedNow = await this.authRepository.registerFailedLogin(
+                    user.id,
+                    this.config.loginMaxAttempts,
+                    new Date(Date.now() + this.config.loginLockMinutes * 60 * 1000),
+                );
+                await this.auditLogin(user.id, 'FAILURE', 'invalid_credentials', meta);
+                if (lockedNow) {
+                    await this.auditService.record({
+                        actorUserId: user.id,
+                        tenantId: null,
+                        action: AuditAction.AUTH_LOCKOUT,
+                        resourceType: 'user',
+                        resourceId: user.id,
+                        result: 'SUCCESS',
+                        metadata: { minutes: this.config.loginLockMinutes, ip: meta.ip },
+                    });
+                    throw CustomError.tooManyRequests(LOCKED_MESSAGE);
+                }
+                throw CustomError.unauthorized('Invalid credentials');
+            }
 
-            if (user.status === 'SUSPENDED') throw CustomError.forbidden('User is suspended');
+            if (user.status === 'SUSPENDED') {
+                await this.auditLogin(user.id, 'FAILURE', 'suspended', meta);
+                throw CustomError.forbidden('User is suspended');
+            }
 
-            const token = this.tokenSigner.sign({ id: user.id });
+            await this.authRepository.resetFailedLogins(user.id);
+            const tokens = await this.createSession(user.id, meta);
+            await this.auditLogin(user.id, 'SUCCESS', null, meta);
 
-            return { user, token };
+            return { user, ...tokens };
         } catch (error) {
             this.handleError(error, 'login');
+        }
+    }
+
+    private auditLogin(
+        userId: string | null,
+        result: 'SUCCESS' | 'FAILURE',
+        reason: string | null,
+        meta: RequestMeta,
+    ): Promise<void> {
+        return this.auditService.record({
+            actorUserId: userId,
+            tenantId: null,
+            action: AuditAction.AUTH_LOGIN,
+            resourceType: 'user',
+            resourceId: userId,
+            result,
+            metadata: { reason, ip: meta.ip },
+        });
+    }
+
+    // Rota el refresh token: revoca la sesión actual y crea otra.
+    // Si llega un refresh ya rotado o revocado se asume robo y se cierran todas las sesiones.
+    async refresh(dto: RefreshTokenDto, meta: RequestMeta): Promise<AuthTokens> {
+        try {
+            const found = await this.sessionRepository.findByRefreshTokenHash(hashToken(dto.refreshToken));
+            if (!found) throw CustomError.unauthorized(INVALID_SESSION_MESSAGE);
+
+            const { session, user } = found;
+
+            if (session.revokedAt || session.replacedById) {
+                await this.sessionRepository.revokeAllForUser(user.id);
+                await this.auditService.record({
+                    actorUserId: user.id,
+                    tenantId: null,
+                    action: AuditAction.AUTH_REFRESH_REUSE,
+                    resourceType: 'session',
+                    resourceId: session.id,
+                    result: 'FAILURE',
+                    metadata: { ip: meta.ip },
+                });
+                throw CustomError.unauthorized(INVALID_SESSION_MESSAGE);
+            }
+
+            if (session.expiresAt <= new Date()) throw CustomError.unauthorized(INVALID_SESSION_MESSAGE);
+            if (user.status === 'SUSPENDED') throw CustomError.forbidden('User is suspended');
+
+            const refreshToken = randomBytes(32).toString("hex");
+            const next = await this.sessionRepository.rotate(session.id, {
+                userId: user.id,
+                refreshTokenHash: hashToken(refreshToken),
+                expiresAt: this.refreshExpiry(),
+                userAgent: meta.userAgent,
+                ip: meta.ip,
+            });
+            // Otra petición rotó la sesión a la vez: este refresh ya no es válido
+            if (!next) throw CustomError.unauthorized(INVALID_SESSION_MESSAGE);
+
+            return { accessToken: this.tokenSigner.sign({ id: user.id, sid: next.id }), refreshToken };
+        } catch (error) {
+            this.handleError(error, 'refresh');
+        }
+    }
+
+    // Cierra solo la sesión actual
+    async logout(sessionId: string): Promise<void> {
+        try {
+            await this.sessionRepository.revoke(sessionId);
+        } catch (error) {
+            this.handleError(error, 'logout');
+        }
+    }
+
+    // Cierra todas las sesiones del usuario (todos los dispositivos)
+    async logoutAll(userId: string, meta: RequestMeta): Promise<void> {
+        try {
+            await this.sessionRepository.revokeAllForUser(userId);
+            await this.auditService.record({
+                actorUserId: userId,
+                tenantId: null,
+                action: AuditAction.AUTH_LOGOUT_ALL,
+                resourceType: 'user',
+                resourceId: userId,
+                result: 'SUCCESS',
+                metadata: { ip: meta.ip },
+            });
+        } catch (error) {
+            this.handleError(error, 'logoutAll');
         }
     }
 
@@ -204,6 +366,17 @@ export class AuthService {
                 record.termsAccepted ? null : new Date(),
             );
             if (!consumed) throw CustomError.badRequest(INVALID_TOKEN_MESSAGE);
+
+            // Con la contraseña nueva se cierran todas las sesiones abiertas
+            await this.sessionRepository.revokeAllForUser(record.userId);
+            await this.auditService.record({
+                actorUserId: record.userId,
+                tenantId: null,
+                action: AuditAction.AUTH_PASSWORD_RESET,
+                resourceType: 'user',
+                resourceId: record.userId,
+                result: 'SUCCESS',
+            });
         } catch (error) {
             this.handleError(error, 'resetPassword');
         }

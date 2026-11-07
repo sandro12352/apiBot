@@ -14,6 +14,30 @@ export class AuthDatasourceImpl extends AuthDatasource {
         return user ? UserEntity.fromObject(user) : null;
     }
 
+    async registerFailedLogin(userId: string, maxAttempts: number, lockUntil: Date): Promise<boolean> {
+        return prisma.$transaction(async (tx) => {
+            const user = await tx.user.update({
+                where: { id: userId },
+                data: { failedLoginAttempts: { increment: 1 } },
+                select: { failedLoginAttempts: true },
+            });
+            if (user.failedLoginAttempts < maxAttempts) return false;
+
+            await tx.user.update({
+                where: { id: userId },
+                data: { failedLoginAttempts: 0, lockedUntil: lockUntil },
+            });
+            return true;
+        });
+    }
+
+    async resetFailedLogins(userId: string): Promise<void> {
+        await prisma.user.updateMany({
+            where: { id: userId, OR: [{ failedLoginAttempts: { gt: 0 } }, { lockedUntil: { not: null } }] },
+            data: { failedLoginAttempts: 0, lockedUntil: null },
+        });
+    }
+
     async createUserToken(data: NewUserTokenData): Promise<void> {
         await prisma.$transaction([
             prisma.userToken.deleteMany({
@@ -77,7 +101,11 @@ export class AuthDatasourceImpl extends AuthDatasource {
             });
             if (consumed.count === 0) return false;
 
-            await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+            // La contraseña nueva también desbloquea la cuenta
+            await tx.user.update({
+                where: { id: userId },
+                data: { passwordHash, failedLoginAttempts: 0, lockedUntil: null },
+            });
 
             // Recibir el enlace en su correo prueba que el email es suyo
             await tx.user.updateMany({

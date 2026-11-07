@@ -5,7 +5,13 @@ import { AdminDatasourceImpl } from "../../infrastructure/datasource/admin.datas
 import { UserDatasourceImpl } from "../../infrastructure/datasource/user.datasource.impl";
 import { AdminRepositoryImpl } from "../../infrastructure/repositories/admin.repository.impl";
 import { UserRepositoryImpl } from "../../infrastructure/repositories/user.repository.impl";
-import { buildAuthMiddleware, buildAuthService } from "../auth/auth.factory";
+import {
+    buildAuditService,
+    buildAuthMiddleware,
+    buildAuthService,
+    buildTenantService,
+} from "../auth/auth.factory";
+import { UserRoutes } from "../user/UserRoutes";
 
 
 export class AdminRoutes {
@@ -16,8 +22,9 @@ export class AdminRoutes {
             new AdminRepositoryImpl(new AdminDatasourceImpl()),
             new UserRepositoryImpl(new UserDatasourceImpl()),
             buildAuthService(),
+            buildAuditService(),
         );
-        const adminController = new AdminController(adminService);
+        const adminController = new AdminController(adminService, buildTenantService());
         const authMiddleware = buildAuthMiddleware();
 
         // Todo /admin exige un administrador de plataforma autenticado
@@ -25,6 +32,11 @@ export class AdminRoutes {
 
         router.post('/clients', adminController.createClient);
         router.post('/users/:id/setup-email', adminController.resendSetupEmail);
+        router.use('/users', UserRoutes.routes);
+
+        router.get('/tenants', adminController.getTenants);
+        router.get('/tenants/:id', adminController.getTenant);
+        router.patch('/tenants/:id/status', adminController.updateTenantStatus);
 
         return router;
     }

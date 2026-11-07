@@ -15,6 +15,14 @@ export class AuthRepositoryImpl implements AuthRepository {
         return this.authDatasource.findByEmail(email);
     }
 
+    registerFailedLogin(userId: string, maxAttempts: number, lockUntil: Date): Promise<boolean> {
+        return this.authDatasource.registerFailedLogin(userId, maxAttempts, lockUntil);
+    }
+
+    resetFailedLogins(userId: string): Promise<void> {
+        return this.authDatasource.resetFailedLogins(userId);
+    }
+
     createUserToken(data: NewUserTokenData): Promise<void> {
         return this.authDatasource.createUserToken(data);
     }

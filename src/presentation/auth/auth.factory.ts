@@ -1,16 +1,32 @@
-import { AuthService, UserService } from "../../domain";
+import { AuditService, AuthService, TenantService, UserService } from "../../domain";
 import { BcryptAdapter } from "../../config/adapters/bcrypt.adapter";
 import { ConsoleEmailAdapter } from "../../config/adapters/console-email.adapter";
 import { JwtAdapter } from "../../config/adapters/jwt.adapter";
 import { NodemailerAdapter } from "../../config/adapters/nodemailer.adapter";
 import { envs } from "../../config/envs";
 import { AuthMiddleware } from "../middlewares/auth.middleware";
+import { TenantMiddleware } from "../middlewares/tenant.middleware";
+import { AuditDatasourceImpl } from "../../infrastructure/datasource/audit.datasource.impl";
 import { AuthDatasourceImpl } from "../../infrastructure/datasource/auth.datasource.impl";
+import { SessionDatasourceImpl } from "../../infrastructure/datasource/session.datasource.impl";
+import { TenantDatasourceImpl } from "../../infrastructure/datasource/tenant.datasource.impl";
 import { UserDatasourceImpl } from "../../infrastructure/datasource/user.datasource.impl";
+import { AuditRepositoryImpl } from "../../infrastructure/repositories/audit.repository.impl";
 import { AuthRepositoryImpl } from "../../infrastructure/repositories/auth.repository.impl";
+import { SessionRepositoryImpl } from "../../infrastructure/repositories/session.repository.impl";
+import { TenantRepositoryImpl } from "../../infrastructure/repositories/tenant.repository.impl";
 import { UserRepositoryImpl } from "../../infrastructure/repositories/user.repository.impl";
 
-// Cableado compartido del servicio de auth (rutas de auth, admin y scripts)
+// Cableado compartido de servicios y middlewares (rutas, admin y scripts)
+
+const buildSessionRepository = () => new SessionRepositoryImpl(new SessionDatasourceImpl());
+
+export const buildAuditService = (): AuditService =>
+    new AuditService(new AuditRepositoryImpl(new AuditDatasourceImpl()));
+
+export const buildTenantService = (): TenantService =>
+    new TenantService(new TenantRepositoryImpl(new TenantDatasourceImpl()), buildAuditService());
+
 export const buildAuthService = (): AuthService => {
     const passwordHasher = new BcryptAdapter();
     // Sin SMTP configurado se imprime el correo en consola (solo desarrollo)
@@ -22,14 +38,24 @@ export const buildAuthService = (): AuthService => {
 
     return new AuthService(
         new AuthRepositoryImpl(new AuthDatasourceImpl()),
+        buildSessionRepository(),
         passwordHasher,
         new JwtAdapter(),
         emailSender,
         userService,
-        envs.APP_URL,
-        envs.APP_NAME,
+        buildAuditService(),
+        {
+            appUrl: envs.APP_URL,
+            appName: envs.APP_NAME,
+            refreshTokenTtlDays: envs.REFRESH_TOKEN_TTL_DAYS,
+            loginMaxAttempts: envs.LOGIN_MAX_ATTEMPTS,
+            loginLockMinutes: envs.LOGIN_LOCK_MINUTES,
+        },
     );
 };
 
 export const buildAuthMiddleware = (): AuthMiddleware =>
-    new AuthMiddleware(new JwtAdapter(), new UserRepositoryImpl(new UserDatasourceImpl()));
+    new AuthMiddleware(new JwtAdapter(), buildSessionRepository());
+
+export const buildTenantMiddleware = (): TenantMiddleware =>
+    new TenantMiddleware(buildTenantService());

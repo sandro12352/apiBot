@@ -6,6 +6,10 @@ import type { UserEntity } from "../entities/user.entity";
 export abstract class AuthRepository {
     abstract findByEmail(email: string): Promise<UserEntity | null>;
 
+    abstract registerFailedLogin(userId: string, maxAttempts: number, lockUntil: Date): Promise<boolean>;
+
+    abstract resetFailedLogins(userId: string): Promise<void>;
+
     abstract createUserToken(data: NewUserTokenData): Promise<void>;
 
     abstract findValidUserToken(tokenHash: string, type: UserTokenType): Promise<UserTokenRecord | null>;

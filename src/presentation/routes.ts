@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { AuthRoutes } from "./auth/AuthRoutes";
-import { UserRoutes } from "./user/UserRoutes";
 import { AdminRoutes } from "./admin/AdminRoutes";
+import { TenantRoutes } from "./tenants/TenantRoutes";
 
 
 export class AppRoutes {
@@ -10,7 +10,8 @@ export class AppRoutes {
         const router = Router();
 
         router.use('/auth', AuthRoutes.routes);
-        router.use('/user', UserRoutes.routes);
+        router.use('/tenants', TenantRoutes.routes);
+        // Incluye /admin/users (antes /user)
         router.use('/admin', AdminRoutes.routes);
 
         return router;
