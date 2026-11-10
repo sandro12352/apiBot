@@ -12,6 +12,9 @@ export const AuditAction = {
     ADMIN_USER_UPDATE: "admin.user.update",
     ADMIN_USER_DELETE: "admin.user.delete",
     TENANT_UPDATE: "tenant.update",
+    TENANT_MEMBER_ADD: "tenant.member.add",
+    TENANT_MEMBER_ROLE: "tenant.member.role",
+    TENANT_MEMBER_REMOVE: "tenant.member.remove",
 } as const;
 
 export type AuditActionName = (typeof AuditAction)[keyof typeof AuditAction];

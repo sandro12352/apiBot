@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { TenantController } from "./TenantController";
+import { MemberRoutes } from "./MemberRoutes";
 import { buildAuthMiddleware, buildTenantMiddleware, buildTenantService } from "../auth/auth.factory";
 
 
@@ -17,6 +18,9 @@ export class TenantRoutes {
 
         router.get('/:tenantId', tenantMiddleware.requireMember(), tenantController.getTenant);
         router.patch('/:tenantId', tenantMiddleware.requireMember('TENANT_ADMIN'), tenantController.updateTenant);
+
+        // Miembros: solo TENANT_ADMIN (una única guardia de tenant y rol en el montaje)
+        router.use('/:tenantId/members', tenantMiddleware.requireMember('TENANT_ADMIN'), MemberRoutes.routes);
 
         return router;
     }

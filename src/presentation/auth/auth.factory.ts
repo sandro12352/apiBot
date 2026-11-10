@@ -1,4 +1,4 @@
-import { AuditService, AuthService, TenantService, UserService } from "../../domain";
+import { AuditService, AuthService, MemberService, TenantService, UserService } from "../../domain";
 import { BcryptAdapter } from "../../config/adapters/bcrypt.adapter";
 import { ConsoleEmailAdapter } from "../../config/adapters/console-email.adapter";
 import { JwtAdapter } from "../../config/adapters/jwt.adapter";
@@ -11,6 +11,8 @@ import { AuthDatasourceImpl } from "../../infrastructure/datasource/auth.datasou
 import { SessionDatasourceImpl } from "../../infrastructure/datasource/session.datasource.impl";
 import { TenantDatasourceImpl } from "../../infrastructure/datasource/tenant.datasource.impl";
 import { UserDatasourceImpl } from "../../infrastructure/datasource/user.datasource.impl";
+import { MemberDatasourceImpl } from "../../infrastructure/datasource/member.datasource.impl";
+import { MemberRepositoryImpl } from "../../infrastructure/repositories/member.repository.impl";
 import { AuditRepositoryImpl } from "../../infrastructure/repositories/audit.repository.impl";
 import { AuthRepositoryImpl } from "../../infrastructure/repositories/auth.repository.impl";
 import { SessionRepositoryImpl } from "../../infrastructure/repositories/session.repository.impl";
@@ -53,6 +55,14 @@ export const buildAuthService = (): AuthService => {
         },
     );
 };
+
+export const buildMemberService = (): MemberService =>
+    new MemberService(
+        new MemberRepositoryImpl(new MemberDatasourceImpl()),
+        new UserRepositoryImpl(new UserDatasourceImpl()),
+        buildAuthService(),
+        buildAuditService(),
+    );
 
 export const buildAuthMiddleware = (): AuthMiddleware =>
     new AuthMiddleware(new JwtAdapter(), buildSessionRepository());
