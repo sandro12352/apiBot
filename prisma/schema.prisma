@@ -678,6 +678,10 @@ model WebhookEvent {
   status       EventProcessingStatus @default(RECEIVED)
   attempts     Int                   @default(0)
   lastError    String?
+  // Evento normalizado y cifrado: solo existe mientras haya reintentos pendientes
+  encryptedPayload String?
+  // Cuándo puede (re)procesarlo el reprocesador; también hace de reserva mientras se procesa
+  nextAttemptAt    DateTime?
   receivedAt   DateTime              @default(now())
   processedAt  DateTime?
 
@@ -686,6 +690,7 @@ model WebhookEvent {
 
   @@unique([externalId, type])
   @@index([status, receivedAt])
+  @@index([status, nextAttemptAt])
   @@index([tenantId])
   @@index([connectionId])
   @@map("webhook_events")

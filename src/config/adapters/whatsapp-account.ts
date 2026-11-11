@@ -14,9 +14,34 @@ export class WhatsAppApiError extends Error {
         this.name = "WhatsAppApiError";
     }
 
-    // Código 190 de Meta = token inválido, caducado o revocado
+    // 190 (token caducado o inválido) y 0 (no se pudo autenticar) según la documentación de Meta
     get isInvalidToken(): boolean {
-        return this.metaCode === 190 || this.httpStatus === 401;
+        return this.metaCode === 190 || this.metaCode === 0 || this.httpStatus === 401;
+    }
+
+    // La cuenta o el número no pueden enviar: 368 (restringida o desactivada por política),
+    // 133010 (número no registrado) y 33 (número borrado)
+    get isAccountNotEligible(): boolean {
+        return this.metaCode === 368 || this.metaCode === 133010 || this.metaCode === 33;
+    }
+
+    // El token no tiene permisos: 3, 10, 131005 y el rango 200-299
+    get isPermissionError(): boolean {
+        const code = this.metaCode;
+        return code === 3 || code === 10 || code === 131005 || (code !== undefined && code >= 200 && code <= 299);
+    }
+
+    // Problema de ESE destinatario, no de la conexión: 131030 (fuera de la lista permitida de un
+    // número de prueba), 130403 (la empresa lo bloqueó), 130497 (país restringido), 131021 (mismo número)
+    get isRecipientError(): boolean {
+        const code = this.metaCode;
+        return code === 131030 || code === 130403 || code === 130497 || code === 131021;
+    }
+
+    // Fallos que se pueden resolver solos: red, 5xx, límite de tasa y errores temporales de Meta
+    get isTemporary(): boolean {
+        const code = this.metaCode;
+        return this.isUnavailable || code === 2 || code === 131000 || code === 131016 || code === 133004 || code === 130429;
     }
 
     // Código 100 = el número no existe o el token no tiene acceso a él

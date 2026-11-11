@@ -1,16 +1,25 @@
 import { prisma } from "../../data/postgres";
 import {
     MetaWebhookDatasource,
+    type AffectedConnection,
     type ClaimedMessage,
     type ClaimMessageInput,
     type EventStatus,
     type RegisteredEvent,
+    type RetryableEvent,
     type TenantBotMode,
     type WebhookConnection,
+    type WhatsappConnectionState,
 } from "../../domain";
 
 // Mensaje en PROCESSING reciente: otro proceso lo está atendiendo; no responder dos veces
 const IN_FLIGHT_MS = 60_000;
+
+// Reserva de un evento en proceso: pasado este tiempo sin terminar (caída del servidor),
+// el reprocesador puede retomarlo
+const LEASE_MS = 2 * 60_000;
+
+const UNFINISHED = ["RECEIVED", "FAILED", "PROCESSING"] as const;
 
 const isUniqueViolation = (error: unknown): boolean =>
     typeof error === "object" && error !== null && (error as { code?: string }).code === "P2002";
@@ -44,6 +53,7 @@ export class MetaWebhookDatasourceImpl extends MetaWebhookDatasource {
         type: string;
         tenantId?: string;
         connectionId?: string;
+        encryptedPayload?: string;
     }): Promise<RegisteredEvent> {
         try {
             const created = await prisma.webhookEvent.create({
@@ -52,6 +62,9 @@ export class MetaWebhookDatasourceImpl extends MetaWebhookDatasource {
                     type: input.type,
                     ...(input.tenantId ? { tenantId: input.tenantId } : {}),
                     ...(input.connectionId ? { connectionId: input.connectionId } : {}),
+                    ...(input.encryptedPayload
+                        ? { encryptedPayload: input.encryptedPayload, nextAttemptAt: new Date(Date.now() + LEASE_MS) }
+                        : {}),
                 },
             });
             return { id: created.id, isNew: true, status: created.status, attempts: created.attempts };
@@ -66,18 +79,94 @@ export class MetaWebhookDatasourceImpl extends MetaWebhookDatasource {
         }
     }
 
-    async startEvent(eventId: string): Promise<void> {
+    async startEvent(eventId: string): Promise<number> {
+        const updated = await prisma.webhookEvent.update({
+            where: { id: eventId },
+            data: {
+                status: "PROCESSING",
+                attempts: { increment: 1 },
+                lastError: null,
+                nextAttemptAt: new Date(Date.now() + LEASE_MS),
+            },
+            select: { attempts: true },
+        });
+        return updated.attempts;
+    }
+
+    async finishEvent(eventId: string, status: EventStatus, lastError?: string, retryAt?: Date): Promise<void> {
         await prisma.webhookEvent.update({
             where: { id: eventId },
-            data: { status: "PROCESSING", attempts: { increment: 1 }, lastError: null },
+            data: {
+                status,
+                lastError: lastError ?? null,
+                processedAt: new Date(),
+                nextAttemptAt: retryAt ?? null,
+                // Sin reintento pendiente no se conserva el contenido del mensaje
+                ...(retryAt ? {} : { encryptedPayload: null }),
+            },
         });
     }
 
-    async finishEvent(eventId: string, status: EventStatus, lastError?: string): Promise<void> {
-        await prisma.webhookEvent.update({
-            where: { id: eventId },
-            data: { status, lastError: lastError ?? null, processedAt: new Date() },
+    async findRetryable(now: Date, maxAttempts: number, limit: number): Promise<RetryableEvent[]> {
+        const rows = await prisma.webhookEvent.findMany({
+            where: {
+                encryptedPayload: { not: null },
+                status: { in: [...UNFINISHED] },
+                nextAttemptAt: { lte: now },
+                attempts: { lt: maxAttempts },
+            },
+            orderBy: { nextAttemptAt: "asc" },
+            take: limit,
+            select: { id: true, encryptedPayload: true },
         });
+        return rows.flatMap((row) => (row.encryptedPayload ? [{ id: row.id, encryptedPayload: row.encryptedPayload }] : []));
+    }
+
+    async expireExhausted(now: Date, maxAttempts: number): Promise<void> {
+        await prisma.webhookEvent.updateMany({
+            where: {
+                encryptedPayload: { not: null },
+                status: { in: [...UNFINISHED] },
+                nextAttemptAt: { lte: now },
+                attempts: { gte: maxAttempts },
+            },
+            data: {
+                status: "FAILED",
+                lastError: "Retries exhausted",
+                encryptedPayload: null,
+                nextAttemptAt: null,
+                processedAt: now,
+            },
+        });
+    }
+
+    async markConnectionStatus(connectionId: string, status: WhatsappConnectionState, detail: string): Promise<boolean> {
+        const result = await prisma.whatsappConnection.updateMany({
+            where: { id: connectionId, status: "CONNECTED" },
+            data: { status, statusDetail: detail, lastConnectionTestOk: false, lastConnectionTestAt: new Date() },
+        });
+        return result.count > 0;
+    }
+
+    async applyAccountEvent(
+        wabaId: string,
+        change: { status?: WhatsappConnectionState; detail: string },
+    ): Promise<AffectedConnection[]> {
+        const rows = await prisma.whatsappConnection.findMany({
+            where: { wabaId, status: { not: "DISCONNECTED" } },
+            select: { id: true, tenantId: true },
+        });
+        if (rows.length === 0) return [];
+
+        await prisma.whatsappConnection.updateMany({
+            where: { id: { in: rows.map((row) => row.id) } },
+            data: {
+                statusDetail: change.detail,
+                ...(change.status ? { status: change.status } : {}),
+                ...(change.status === "DISCONNECTED" ? { disconnectedAt: new Date() } : {}),
+            },
+        });
+        return rows.map((row) => ({ connectionId: row.id, tenantId: row.tenantId }));
     }
 
     async isTestNumber(tenantId: string, phoneDigits: string): Promise<boolean> {

@@ -20,10 +20,18 @@ const messagesValueSchema = z.looseObject({
     statuses: z.array(statusSchema).optional(),
 });
 
+const accountValueSchema = z.looseObject({
+    event: z.string().min(1),
+    waba_info: z.looseObject({ waba_id: z.string().min(1) }).optional(),
+    disconnection_info: z.looseObject({ reason: z.string().optional() }).optional(),
+});
+
 const payloadSchema = z.looseObject({
     object: z.literal("whatsapp_business_account"),
     entry: z.array(
         z.looseObject({
+            id: z.string().optional(),
+            time: z.union([z.number(), z.string()]).optional(),
             changes: z.array(z.looseObject({ field: z.string(), value: z.unknown() })),
         }),
     ),
@@ -46,7 +54,26 @@ export class MetaWebhookDto {
 
         for (const entry of result.data.entry) {
             for (const change of entry.changes) {
-                // Otros campos (account_update, history, ...) llegarán en fases posteriores
+                if (change.field === "account_update") {
+                    const account = accountValueSchema.safeParse(change.value);
+                    if (!account.success) continue;
+                    // En eventos de partner entry.id es el negocio del partner: el WABA va en waba_info
+                    const wabaId = account.data.waba_info?.waba_id ?? entry.id;
+                    if (!wabaId) continue;
+                    events.push({
+                        kind: "account",
+                        wabaId,
+                        // El payload no trae id de evento: cuenta + evento + hora identifican la entrega
+                        externalId: `${wabaId}:${account.data.event}:${entry.time ?? "0"}`,
+                        event: account.data.event,
+                        ...(account.data.disconnection_info?.reason
+                            ? { reason: account.data.disconnection_info.reason }
+                            : {}),
+                    });
+                    continue;
+                }
+
+                // Otros campos (history, smb_message_echoes, ...) llegarán con medios y coexistencia
                 if (change.field !== "messages") continue;
 
                 const value = messagesValueSchema.safeParse(change.value);

@@ -86,6 +86,7 @@ export const buildMetaWebhookService = (): MetaWebhookService =>
         // Provisional: sustituir por el manejador con IA en la Fase 3
         new EchoMessageHandler(),
         new AesGcmAdapter(),
+        buildAuditService(),
         { appSecret: envs.META_APP_SECRET, verifyToken: envs.META_WEBHOOK_VERIFY_TOKEN },
     );
 
