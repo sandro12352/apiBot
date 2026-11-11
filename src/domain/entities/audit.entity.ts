@@ -15,6 +15,8 @@ export const AuditAction = {
     TENANT_MEMBER_ADD: "tenant.member.add",
     TENANT_MEMBER_ROLE: "tenant.member.role",
     TENANT_MEMBER_REMOVE: "tenant.member.remove",
+    TENANT_WHATSAPP_CONNECT: "tenant.whatsapp.connect",
+    TENANT_WHATSAPP_DISCONNECT: "tenant.whatsapp.disconnect",
 } as const;
 
 export type AuditActionName = (typeof AuditAction)[keyof typeof AuditAction];

@@ -4,6 +4,17 @@ import helmet from "helmet";
 import { envs } from "../config/envs";
 import { globalRateLimit } from "./middlewares/rate-limit.middleware";
 
+declare global {
+    namespace Express {
+        interface Request {
+            // Body sin parsear; solo se conserva para el webhook de Meta (firma HMAC)
+            rawBody?: Buffer;
+        }
+    }
+}
+
+const WEBHOOK_PATH = '/webhooks/meta';
+
 export interface Options {
     port: number;
     routes: Router;
@@ -22,8 +33,15 @@ export const buildApp = (routes: Router): Express => {
     app.use(helmet());
     // Sin CORS_ORIGINS no se permite ningún origen de navegador
     app.use(cors({ origin: envs.CORS_ORIGINS }));
-    app.use(globalRateLimit);
-    app.use(express.json({ limit: envs.JSON_BODY_LIMIT }));
+    // El webhook de Meta tiene su propio limitador (ver MetaWebhookRoutes)
+    app.use((req: Request, res: Response, next: NextFunction) =>
+        req.path.startsWith(WEBHOOK_PATH) ? next() : globalRateLimit(req, res, next));
+    app.use(express.json({
+        limit: envs.JSON_BODY_LIMIT,
+        verify: (req, _res, buf) => {
+            if ((req as Request).originalUrl.startsWith(WEBHOOK_PATH)) (req as Request).rawBody = buf;
+        },
+    }));
     app.use(express.urlencoded({ extended: true, limit: envs.JSON_BODY_LIMIT }));
 
     // Routes

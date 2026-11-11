@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { TenantController } from "./TenantController";
 import { MemberRoutes } from "./MemberRoutes";
+import { WhatsappRoutes } from "./WhatsappRoutes";
 import { buildAuthMiddleware, buildTenantMiddleware, buildTenantService } from "../auth/auth.factory";
 
 
@@ -21,6 +22,9 @@ export class TenantRoutes {
 
         // Miembros: solo TENANT_ADMIN (una única guardia de tenant y rol en el montaje)
         router.use('/:tenantId/members', tenantMiddleware.requireMember('TENANT_ADMIN'), MemberRoutes.routes);
+
+        // Conexión de WhatsApp: solo TENANT_ADMIN
+        router.use('/:tenantId/whatsapp', tenantMiddleware.requireMember('TENANT_ADMIN'), WhatsappRoutes.routes);
 
         return router;
     }

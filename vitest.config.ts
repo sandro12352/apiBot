@@ -24,6 +24,10 @@ export default defineConfig({
             LOGIN_MAX_ATTEMPTS: "3",
             LOGIN_LOCK_MINUTES: "15",
             ALLOW_PUBLIC_REGISTER: "false",
+            // Meta: valores de prueba; nunca se llama a Meta (el envío se simula en los tests)
+            META_APP_SECRET: "test-app-secret",
+            META_WEBHOOK_VERIFY_TOKEN: "test-verify-token",
+            ENCRYPTION_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"),
         },
     },
 });

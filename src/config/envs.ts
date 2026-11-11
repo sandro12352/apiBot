@@ -38,4 +38,15 @@ export const envs = {
   SMTP_PORT: env.get("SMTP_PORT").default("587").asPortNumber(),
   SMTP_USER: env.get("SMTP_USER").asString(),
   SMTP_PASS: env.get("SMTP_PASS").asString(),
+
+  // Meta / WhatsApp Cloud API. Opcionales para poder arrancar sin Meta configurado:
+  // sin ellas el webhook rechaza las peticiones en lugar de tumbar el servidor.
+  META_APP_SECRET: env.get("META_APP_SECRET").asString(),
+  META_WEBHOOK_VERIFY_TOKEN: env.get("META_WEBHOOK_VERIFY_TOKEN").asString(),
+  // Confirmar la versión vigente en la documentación de Meta antes de producción
+  META_GRAPH_API_VERSION: env.get("META_GRAPH_API_VERSION").default("v23.0").asString(),
+
+  // Clave maestra (32 bytes en base64) para cifrar tokens y credenciales en reposo.
+  // Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+  ENCRYPTION_MASTER_KEY: env.get("ENCRYPTION_MASTER_KEY").asString(),
 };

@@ -1,4 +1,16 @@
-import { AuditService, AuthService, MemberService, TenantService, UserService } from "../../domain";
+import {
+    AuditService,
+    AuthService,
+    EchoMessageHandler,
+    MemberService,
+    MetaWebhookService,
+    TenantService,
+    UserService,
+    WhatsappConnectionService,
+} from "../../domain";
+import { WhatsappConnectionDatasourceImpl } from "../../infrastructure/datasource/whatsapp-connection.datasource.impl";
+import { WhatsappConnectionRepositoryImpl } from "../../infrastructure/repositories/whatsapp-connection.repository.impl";
+import { AesGcmAdapter } from "../../config/adapters/aes-gcm.adapter";
 import { BcryptAdapter } from "../../config/adapters/bcrypt.adapter";
 import { ConsoleEmailAdapter } from "../../config/adapters/console-email.adapter";
 import { JwtAdapter } from "../../config/adapters/jwt.adapter";
@@ -12,6 +24,9 @@ import { SessionDatasourceImpl } from "../../infrastructure/datasource/session.d
 import { TenantDatasourceImpl } from "../../infrastructure/datasource/tenant.datasource.impl";
 import { UserDatasourceImpl } from "../../infrastructure/datasource/user.datasource.impl";
 import { MemberDatasourceImpl } from "../../infrastructure/datasource/member.datasource.impl";
+import { MetaWebhookDatasourceImpl } from "../../infrastructure/datasource/meta-webhook.datasource.impl";
+import { MetaWebhookRepositoryImpl } from "../../infrastructure/repositories/meta-webhook.repository.impl";
+import { WhatsAppCloudClient } from "../../infrastructure/whatsapp-meta/whatsapp-cloud.client";
 import { MemberRepositoryImpl } from "../../infrastructure/repositories/member.repository.impl";
 import { AuditRepositoryImpl } from "../../infrastructure/repositories/audit.repository.impl";
 import { AuthRepositoryImpl } from "../../infrastructure/repositories/auth.repository.impl";
@@ -64,7 +79,25 @@ export const buildMemberService = (): MemberService =>
         buildAuditService(),
     );
 
-export const buildAuthMiddleware = (): AuthMiddleware =>
+export const buildMetaWebhookService = (): MetaWebhookService =>
+    new MetaWebhookService(
+        new MetaWebhookRepositoryImpl(new MetaWebhookDatasourceImpl()),
+        new WhatsAppCloudClient(),
+        // Provisional: sustituir por el manejador con IA en la Fase 3
+        new EchoMessageHandler(),
+        new AesGcmAdapter(),
+        { appSecret: envs.META_APP_SECRET, verifyToken: envs.META_WEBHOOK_VERIFY_TOKEN },
+    );
+
+export const buildWhatsappConnectionService = (): WhatsappConnectionService =>
+    new WhatsappConnectionService(
+        new WhatsappConnectionRepositoryImpl(new WhatsappConnectionDatasourceImpl()),
+        new WhatsAppCloudClient(),
+        new AesGcmAdapter(),
+        buildAuditService(),
+    );
+
+export const buildAuthMiddleware =(): AuthMiddleware =>
     new AuthMiddleware(new JwtAdapter(), buildSessionRepository());
 
 export const buildTenantMiddleware = (): TenantMiddleware =>

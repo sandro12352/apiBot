@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { AesGcmAdapter } from "../../src/config/adapters/aes-gcm.adapter";
 import { BcryptAdapter } from "../../src/config/adapters/bcrypt.adapter";
 import { prisma } from "./db";
 
@@ -53,6 +54,37 @@ export const createResetToken = async (userId: string): Promise<string> => {
         },
     });
     return token;
+};
+
+export const WA_PHONE_NUMBER_ID = "100200300400500";
+export const WA_ACCESS_TOKEN = "EAAB-test-access-token";
+
+interface ConnectionOptions {
+    botMode?: "TEST" | "LIVE";
+    tenantBotEnabled?: boolean;
+    connectionBotEnabled?: boolean;
+    status?: "PENDING" | "CONNECTED" | "DISCONNECTED";
+    phoneNumberId?: string;
+}
+
+// Empresa con una conexión de WhatsApp lista para responder (modo en vivo por defecto)
+export const createWhatsappConnection = async (options: ConnectionOptions = {}) => {
+    const tenant = await createTenant("Empresa WA");
+    await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { botMode: options.botMode ?? "LIVE", botEnabled: options.tenantBotEnabled ?? true },
+    });
+    const connection = await prisma.whatsappConnection.create({
+        data: {
+            tenantId: tenant.id,
+            wabaId: "waba-test",
+            phoneNumberId: options.phoneNumberId ?? WA_PHONE_NUMBER_ID,
+            status: options.status ?? "CONNECTED",
+            botEnabled: options.connectionBotEnabled ?? true,
+            encryptedAccessToken: new AesGcmAdapter().encrypt(WA_ACCESS_TOKEN),
+        },
+    });
+    return { tenant, connection };
 };
 
 // Escenario habitual: dos empresas aisladas, cada una con su administrador

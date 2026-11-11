@@ -9,6 +9,7 @@
     "start": "tsx src/app.ts",
     "prisma:studio": "prisma studio",
     "admin:create": "tsx src/scripts/create-platform-admin.ts",
+    "whatsapp:connect": "tsx src/scripts/connect-whatsapp-test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest"

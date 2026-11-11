@@ -38,6 +38,11 @@ export class CustomError extends Error {
         return new CustomError(500, message);
     }
 
+    // Un servicio externo (Meta) no responde o falla
+    static badGateway(message: string): CustomError {
+        return new CustomError(502, message);
+    }
+
     // Errores al operar con la base de datos (el detalle se registra en el log, no se expone al cliente)
     static databaseError(message: string = 'Database error'): CustomError {
         return new CustomError(500, message);
