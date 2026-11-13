@@ -1,13 +1,23 @@
 import {
+    AIProviderRegistry,
+    AiConversationHandler,
+    AiCredentialService,
+    AssistantService,
     AuditService,
     AuthService,
-    EchoMessageHandler,
     MemberService,
     MetaWebhookService,
     TenantService,
     UserService,
     WhatsappConnectionService,
 } from "../../domain";
+import { GeminiProvider } from "../../infrastructure/ai/gemini.provider";
+import { AiCredentialDatasourceImpl } from "../../infrastructure/datasource/ai-credential.datasource.impl";
+import { AssistantDatasourceImpl } from "../../infrastructure/datasource/assistant.datasource.impl";
+import { ConversationDatasourceImpl } from "../../infrastructure/datasource/conversation.datasource.impl";
+import { AiCredentialRepositoryImpl } from "../../infrastructure/repositories/ai-credential.repository.impl";
+import { AssistantRepositoryImpl } from "../../infrastructure/repositories/assistant.repository.impl";
+import { ConversationRepositoryImpl } from "../../infrastructure/repositories/conversation.repository.impl";
 import { WhatsappConnectionDatasourceImpl } from "../../infrastructure/datasource/whatsapp-connection.datasource.impl";
 import { WhatsappConnectionRepositoryImpl } from "../../infrastructure/repositories/whatsapp-connection.repository.impl";
 import { AesGcmAdapter } from "../../config/adapters/aes-gcm.adapter";
@@ -79,12 +89,38 @@ export const buildMemberService = (): MemberService =>
         buildAuditService(),
     );
 
+// Proveedores de IA disponibles: añadir otro es registrar su adaptador aquí
+const buildAiProviders = (): AIProviderRegistry => new AIProviderRegistry([new GeminiProvider()]);
+
+export const buildConversationRepository = (): ConversationRepositoryImpl =>
+    new ConversationRepositoryImpl(new ConversationDatasourceImpl());
+
+export const buildAiConversationHandler = (): AiConversationHandler =>
+    new AiConversationHandler(
+        new AssistantRepositoryImpl(new AssistantDatasourceImpl()),
+        new AiCredentialRepositoryImpl(new AiCredentialDatasourceImpl()),
+        buildConversationRepository(),
+        buildAiProviders(),
+        new AesGcmAdapter(),
+        buildAuditService(),
+    );
+
+export const buildAiCredentialService = (): AiCredentialService =>
+    new AiCredentialService(
+        new AiCredentialRepositoryImpl(new AiCredentialDatasourceImpl()),
+        buildAiProviders(),
+        new AesGcmAdapter(),
+        buildAuditService(),
+    );
+
+export const buildAssistantService = (): AssistantService =>
+    new AssistantService(new AssistantRepositoryImpl(new AssistantDatasourceImpl()), buildAuditService());
+
 export const buildMetaWebhookService = (): MetaWebhookService =>
     new MetaWebhookService(
         new MetaWebhookRepositoryImpl(new MetaWebhookDatasourceImpl()),
         new WhatsAppCloudClient(),
-        // Provisional: sustituir por el manejador con IA en la Fase 3
-        new EchoMessageHandler(),
+        buildAiConversationHandler(),
         new AesGcmAdapter(),
         buildAuditService(),
         { appSecret: envs.META_APP_SECRET, verifyToken: envs.META_WEBHOOK_VERIFY_TOKEN },

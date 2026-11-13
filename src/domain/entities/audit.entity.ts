@@ -19,6 +19,12 @@ export const AuditAction = {
     TENANT_WHATSAPP_DISCONNECT: "tenant.whatsapp.disconnect",
     // Cambio de estado provocado por Meta (error de envío o evento de la cuenta)
     WHATSAPP_CONNECTION_STATUS: "whatsapp.connection.status",
+    AI_CREDENTIAL_SAVE: "ai.credential.save",
+    AI_CREDENTIAL_TEST: "ai.credential.test",
+    AI_CREDENTIAL_DELETE: "ai.credential.delete",
+    // Cambio de estado provocado por el proveedor (clave inválida, sin saldo)
+    AI_CREDENTIAL_STATUS: "ai.credential.status",
+    ASSISTANT_UPDATE: "assistant.update",
 } as const;
 
 export type AuditActionName = (typeof AuditAction)[keyof typeof AuditAction];

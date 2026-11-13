@@ -1,7 +1,8 @@
 import { envs } from "./config/envs";
 import { AppRoutes } from "./presentation/routes";
 import { Server } from "./presentation/server";
-import { buildMetaWebhookService } from "./presentation/auth/auth.factory";
+import { buildConversationRepository, buildMetaWebhookService } from "./presentation/auth/auth.factory";
+import { ContextCleaner } from "./presentation/assistant/ContextCleaner";
 import { WebhookReprocessor } from "./presentation/webhooks/WebhookReprocessor";
 
 
@@ -16,6 +17,8 @@ const main = async () => {
 
     // Reintenta los mensajes fallidos o sin terminar (provisional hasta BullMQ)
     new WebhookReprocessor(buildMetaWebhookService()).start();
+    // Borra el contexto de conversación vencido (7 días)
+    new ContextCleaner(buildConversationRepository()).start();
 }
 
 

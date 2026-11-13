@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import { envs } from "../config/envs";
 import { globalRateLimit } from "./middlewares/rate-limit.middleware";
+import { DocsRoutes } from "./docs/DocsRoutes";
 
 declare global {
     namespace Express {
@@ -28,6 +29,9 @@ export const buildApp = (routes: Router): Express => {
     // Detrás del proxy inverso: req.ip toma la IP real del cliente (rate limit y auditoría)
     app.set('trust proxy', envs.TRUST_PROXY);
     app.disable('x-powered-by');
+
+    // Documentación Swagger: antes de helmet porque lleva su propia política de contenido
+    if (process.env.NODE_ENV !== 'production') app.use('/docs', DocsRoutes.routes);
 
     // Middleware
     app.use(helmet());

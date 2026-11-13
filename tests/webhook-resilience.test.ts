@@ -5,6 +5,7 @@ import { prisma, resetDb } from "./helpers/db";
 import { createWhatsappConnection, WA_PHONE_NUMBER_ID } from "./helpers/seed";
 import { AesGcmAdapter } from "../src/config/adapters/aes-gcm.adapter";
 import { WhatsAppApiError } from "../src/config/adapters/whatsapp-account";
+import { AiConversationHandler } from "../src/domain";
 import { WhatsAppCloudClient } from "../src/infrastructure/whatsapp-meta/whatsapp-cloud.client";
 import { buildMetaWebhookService } from "../src/presentation/auth/auth.factory";
 
@@ -19,6 +20,9 @@ let sendText: ReturnType<typeof vi.spyOn>;
 beforeEach(async () => {
     await resetDb();
     sendText = vi.spyOn(WhatsAppCloudClient.prototype, "sendText").mockResolvedValue({ messageId: "wamid.OUT" });
+    // Estas pruebas son del webhook, no de la IA: el handler responde con un eco
+    vi.spyOn(AiConversationHandler.prototype, "handle").mockImplementation(async (message) => `Recibido: ${message.text}`);
+    vi.spyOn(AiConversationHandler.prototype, "afterSent").mockResolvedValue();
 });
 afterEach(() => vi.restoreAllMocks());
 

@@ -87,6 +87,45 @@ export const createWhatsappConnection = async (options: ConnectionOptions = {}) 
     return { tenant, connection };
 };
 
+export const AI_API_KEY = "AIzaSy-clave-de-prueba-0123456789";
+
+interface AiSetupOptions {
+    credentialStatus?: "PENDING" | "VALID" | "INVALID" | "QUOTA_EXCEEDED";
+    withCredential?: boolean;
+    withAssistant?: boolean;
+    assistantModel?: string | null;
+    preferredModel?: string | null;
+}
+
+// Asistente + clave de IA (cifrada) ya configurados para una empresa
+export const createAiSetup = async (tenantId: string, options: AiSetupOptions = {}) => {
+    if (options.withCredential ?? true) {
+        await prisma.aiProviderCredential.create({
+            data: {
+                tenantId,
+                provider: "GEMINI",
+                encryptedApiKey: new AesGcmAdapter().encrypt(AI_API_KEY),
+                maskedKey: "AIza…6789",
+                status: options.credentialStatus ?? "VALID",
+                preferredModel: options.preferredModel === undefined ? "gemini-test-model" : options.preferredModel,
+            },
+        });
+    }
+    if (options.withAssistant ?? true) {
+        await prisma.assistant.create({
+            data: {
+                tenantId,
+                name: "Asistente",
+                instructions: "Vendemos zapatillas deportivas. Horario de lunes a viernes.",
+                language: "es",
+                tone: "amable",
+                businessRules: "No ofrezcas descuentos.",
+                aiModel: options.assistantModel ?? null,
+            },
+        });
+    }
+};
+
 // Escenario habitual: dos empresas aisladas, cada una con su administrador
 export const createTwoTenants = async () => {
     const tenantA = await createTenant("Empresa A");

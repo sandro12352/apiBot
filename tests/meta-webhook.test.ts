@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./helpers/api";
 import { prisma, resetDb } from "./helpers/db";
 import { createWhatsappConnection, WA_ACCESS_TOKEN, WA_PHONE_NUMBER_ID } from "./helpers/seed";
+import { AiConversationHandler } from "../src/domain";
 import { WhatsAppCloudClient } from "../src/infrastructure/whatsapp-meta/whatsapp-cloud.client";
 
 // Webhook de Meta: firma, idempotencia y reglas de respuesta. El envío a Meta se simula.
@@ -15,6 +16,9 @@ let sendText: ReturnType<typeof vi.spyOn>;
 beforeEach(async () => {
     await resetDb();
     sendText = vi.spyOn(WhatsAppCloudClient.prototype, "sendText").mockResolvedValue({ messageId: "wamid.OUT" });
+    // Estas pruebas son del webhook, no de la IA: el handler responde con un eco
+    vi.spyOn(AiConversationHandler.prototype, "handle").mockImplementation(async (message) => `Recibido: ${message.text}`);
+    vi.spyOn(AiConversationHandler.prototype, "afterSent").mockResolvedValue();
 });
 afterEach(() => vi.restoreAllMocks());
 

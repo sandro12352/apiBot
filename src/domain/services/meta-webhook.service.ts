@@ -13,7 +13,7 @@ import type {
 import type { WhatsappConnectionState } from "../entities/whatsapp-connection.entity";
 import type { MetaWebhookRepository } from "../repositories/meta-webhook.repository";
 import type { AuditService } from "./audit.service";
-import type { InboundMessageHandler } from "./inbound-message.handler";
+import { ReplySkipped, type InboundMessageHandler } from "./inbound-message.handler";
 
 export interface MetaWebhookOptions {
     appSecret?: string | undefined;
@@ -225,12 +225,21 @@ export class MetaWebhookService {
             }
             messageStateId = claim.id;
 
-            const reply = await this.handler.handle({
+            const inbound = {
                 tenantId: connection.tenantId,
                 connectionId: connection.id,
                 from: event.from,
                 text: event.text,
-            });
+                isTest: connection.tenant.botMode === "TEST",
+            };
+            let reply: string | null;
+            try {
+                reply = await this.handler.handle(inbound);
+            } catch (error) {
+                if (!(error instanceof ReplySkipped)) throw error;
+                await this.repository.finishEvent(eventId, "IGNORED", error.reason.slice(0, 300));
+                return;
+            }
             if (reply === null) {
                 await this.repository.finishEvent(eventId, "IGNORED");
                 return;
@@ -255,6 +264,11 @@ export class MetaWebhookService {
 
             if (messageStateId) await this.repository.markMessageSent(messageStateId);
             await this.repository.finishEvent(eventId, "PROCESSED");
+
+            // La respuesta ya salió: guardar el contexto es secundario y su fallo no la revierte
+            await this.handler.afterSent(inbound, reply).catch((error: unknown) => {
+                console.error("[MetaWebhook] afterSent failed", error instanceof Error ? error.name : "unknown");
+            });
         } catch (error) {
             // Solo el mensaje del error: nunca el token ni el contenido del mensaje
             const detail = (error instanceof Error ? error.message : "Unknown error").slice(0, 300);

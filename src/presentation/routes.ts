@@ -11,6 +11,7 @@ export class AppRoutes {
         const router = Router();
 
         router.use('/auth', AuthRoutes.routes);
+        // Incluye los módulos de la empresa: /tenants/:tenantId/members y /whatsapp
         router.use('/tenants', TenantRoutes.routes);
         // Incluye /admin/users (antes /user)
         router.use('/admin', AdminRoutes.routes);
