@@ -28,6 +28,7 @@ const credentialsUrl = (tenantId: string, provider = "GEMINI") => `/tenants/${te
 const assistantBody = (overrides: Record<string, unknown> = {}) => ({
     name: "Asistente de ventas",
     instructions: "Vendemos zapatillas. Atendemos de lunes a viernes.",
+    welcomeMessage: "¡Hola! Gracias por escribir a Zapatillas Lima.",
     ...overrides,
 });
 
@@ -249,6 +250,9 @@ describe("asistente", () => {
         ["idioma inválido", { language: "español" }],
         ["modelo inválido", { aiModel: "../x" }],
         ["proveedor inválido", { aiProvider: "OTRO" }],
+        ["sin mensaje de bienvenida", { welcomeMessage: undefined }],
+        ["mensaje de bienvenida vacío", { welcomeMessage: "   " }],
+        ["mensaje de bienvenida demasiado largo", { welcomeMessage: "x".repeat(1001) }],
     ])("responde 400 con %s", async (_name, overrides) => {
         const { tenantA, auth } = await asAdminA();
 
@@ -256,5 +260,33 @@ describe("asistente", () => {
 
         expect(res.status).toBe(400);
         expect(await prisma.assistant.count()).toBe(0);
+    });
+
+    it("el mensaje de bienvenida se guarda tal cual en la empresa y se devuelve", async () => {
+        const { tenantA, auth } = await asAdminA();
+        const url = `/tenants/${tenantA.id}/assistant`;
+        const welcome = "  ¡Hola! 🙌 Aquí Zapatillas Lima.\nEscríbenos tu consulta.  ";
+
+        const saved = await api().put(url).set(...auth).send(assistantBody({ welcomeMessage: welcome }));
+
+        expect(saved.status).toBe(200);
+        expect(saved.body.welcomeMessage).toBe(welcome.trim());
+        expect((await prisma.tenant.findUniqueOrThrow({ where: { id: tenantA.id } })).aiNoticeText).toBe(welcome.trim());
+        expect((await api().get(url).set(...auth)).body.welcomeMessage).toBe(welcome.trim());
+
+        // Se puede cambiar después
+        const changed = await api().put(url).set(...auth).send(assistantBody({ welcomeMessage: "Hola, ¿qué buscas hoy?" }));
+        expect(changed.body.welcomeMessage).toBe("Hola, ¿qué buscas hoy?");
+    });
+
+    it("la bienvenida de una empresa no afecta a la de otra", async () => {
+        const { tenantA, tenantB, auth, adminB } = await asAdminA();
+        const authB = bearer((await login(adminB.email)).accessToken);
+
+        await api().put(`/tenants/${tenantA.id}/assistant`).set(...auth).send(assistantBody({ welcomeMessage: "Bienvenida de A" }));
+        await api().put(`/tenants/${tenantB.id}/assistant`).set(...authB).send(assistantBody({ welcomeMessage: "Bienvenida de B" }));
+
+        expect((await api().get(`/tenants/${tenantA.id}/assistant`).set(...auth)).body.welcomeMessage).toBe("Bienvenida de A");
+        expect((await api().get(`/tenants/${tenantB.id}/assistant`).set(...authB)).body.welcomeMessage).toBe("Bienvenida de B");
     });
 });

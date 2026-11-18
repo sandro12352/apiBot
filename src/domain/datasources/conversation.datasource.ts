@@ -1,13 +1,17 @@
-import type { ContextRow, UsageInput } from "../entities/ai.entity";
+import type { ContextRow, LeadRef, UsageInput } from "../entities/ai.entity";
 
 export abstract class ConversationDatasource {
-    // Lead mínimo del contacto (la FK del contexto lo exige). Devuelve su id y actualiza la actividad.
+    // Lead mínimo del contacto (la FK del contexto lo exige). Devuelve su id, si ya recibió el
+    // mensaje de bienvenida y actualiza la actividad.
     abstract upsertLead(
         tenantId: string,
         connectionId: string,
         whatsappNumber: string,
         isTest: boolean,
-    ): Promise<string>;
+    ): Promise<LeadRef>;
+
+    // Deja constancia de que el contacto ya recibió el mensaje de bienvenida
+    abstract markWelcomeSent(connectionId: string, whatsappNumber: string): Promise<void>;
 
     // Los últimos `limit` mensajes del contacto, del más antiguo al más reciente
     abstract recentContext(leadId: string, limit: number): Promise<ContextRow[]>;

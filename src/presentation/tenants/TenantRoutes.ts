@@ -4,6 +4,8 @@ import { MemberRoutes } from "../members/MemberRoutes";
 import { WhatsappRoutes } from "../whatsapp/WhatsappRoutes";
 import { AiCredentialRoutes } from "../ai-credentials/AiCredentialRoutes";
 import { AssistantRoutes } from "../assistant/AssistantRoutes";
+import { KnowledgeRoutes } from "../knowledge/KnowledgeRoutes";
+import { CatalogRoutes } from "../catalog/CatalogRoutes";
 import { buildAuthMiddleware, buildTenantMiddleware, buildTenantService } from "../auth/auth.factory";
 
 
@@ -28,6 +30,8 @@ export class TenantRoutes {
         router.use('/:tenantId/whatsapp', tenantMiddleware.requireMember('TENANT_ADMIN'), WhatsappRoutes.routes);
         router.use('/:tenantId/ai-credentials', tenantMiddleware.requireMember('TENANT_ADMIN'), AiCredentialRoutes.routes);
         router.use('/:tenantId/assistant', tenantMiddleware.requireMember('TENANT_ADMIN'), AssistantRoutes.routes);
+        router.use('/:tenantId/knowledge', tenantMiddleware.requireMember('TENANT_ADMIN'), KnowledgeRoutes.routes);
+        router.use('/:tenantId/catalog', tenantMiddleware.requireMember('TENANT_ADMIN'), CatalogRoutes.routes);
 
         return router;
     }

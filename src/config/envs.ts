@@ -49,4 +49,12 @@ export const envs = {
   // Clave maestra (32 bytes en base64) para cifrar tokens y credenciales en reposo.
   // Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
   ENCRYPTION_MASTER_KEY: env.get("ENCRYPTION_MASTER_KEY").asString(),
+
+  // Archivos privados (imágenes del catálogo): directorio en el disco del servidor
+  STORAGE_DIR: env.get("STORAGE_DIR").default("./storage").asString(),
+  // URL pública HTTPS del backend (dominio o túnel). WhatsApp descarga las imágenes desde ahí;
+  // sin ella el bot responde solo con texto.
+  PUBLIC_BASE_URL: env.get("PUBLIC_BASE_URL").asUrlString(),
+  // Secreto de los enlaces firmados a /media. Si no se define se deriva de JWT_SECRET.
+  MEDIA_SIGNING_SECRET: env.get("MEDIA_SIGNING_SECRET").asString(),
 };

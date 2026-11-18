@@ -25,6 +25,14 @@ export const AuditAction = {
     // Cambio de estado provocado por el proveedor (clave inválida, sin saldo)
     AI_CREDENTIAL_STATUS: "ai.credential.status",
     ASSISTANT_UPDATE: "assistant.update",
+    KNOWLEDGE_CREATE: "knowledge.create",
+    KNOWLEDGE_UPDATE: "knowledge.update",
+    KNOWLEDGE_DELETE: "knowledge.delete",
+    CATALOG_CREATE: "catalog.create",
+    CATALOG_UPDATE: "catalog.update",
+    CATALOG_DELETE: "catalog.delete",
+    CATALOG_IMAGE_ADD: "catalog.image.add",
+    CATALOG_IMAGE_DELETE: "catalog.image.delete",
 } as const;
 
 export type AuditActionName = (typeof AuditAction)[keyof typeof AuditAction];

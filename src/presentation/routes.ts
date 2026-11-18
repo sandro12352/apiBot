@@ -3,6 +3,7 @@ import { AuthRoutes } from "./auth/AuthRoutes";
 import { AdminRoutes } from "./admin/AdminRoutes";
 import { TenantRoutes } from "./tenants/TenantRoutes";
 import { MetaWebhookRoutes } from "./webhooks/MetaWebhookRoutes";
+import { MediaRoutes } from "./media/MediaRoutes";
 
 
 export class AppRoutes {
@@ -17,6 +18,8 @@ export class AppRoutes {
         router.use('/admin', AdminRoutes.routes);
         // Público: lo llama Meta, se autentica por firma
         router.use('/webhooks/meta', MetaWebhookRoutes.routes);
+        // Público con enlace firmado y temporal: imágenes que descarga WhatsApp
+        router.use('/media', MediaRoutes.routes);
 
         return router;
 

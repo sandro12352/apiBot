@@ -5,3 +5,5 @@ node_modules
 /generated/prisma
 
 /postgres/migrations
+# Archivos privados subidos (imágenes del catálogo)
+/storage

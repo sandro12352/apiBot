@@ -1,5 +1,5 @@
 import { prisma } from "../../data/postgres";
-import { ConversationDatasource, type ContextRow, type ContextRoleName, type UsageInput } from "../../domain";
+import { ConversationDatasource, type ContextRow, type ContextRoleName, type LeadRef, type UsageInput } from "../../domain";
 
 export class ConversationDatasourceImpl extends ConversationDatasource {
 
@@ -8,14 +8,21 @@ export class ConversationDatasourceImpl extends ConversationDatasource {
         connectionId: string,
         whatsappNumber: string,
         isTest: boolean,
-    ): Promise<string> {
+    ): Promise<LeadRef> {
         const lead = await prisma.lead.upsert({
             where: { connectionId_whatsappNumber: { connectionId, whatsappNumber } },
             update: { lastActivityAt: new Date() },
             create: { tenantId, connectionId, whatsappNumber, isTest },
-            select: { id: true },
+            select: { id: true, aiNoticeSentAt: true },
         });
-        return lead.id;
+        return { id: lead.id, welcomeSent: lead.aiNoticeSentAt !== null };
+    }
+
+    async markWelcomeSent(connectionId: string, whatsappNumber: string): Promise<void> {
+        await prisma.lead.updateMany({
+            where: { connectionId, whatsappNumber, aiNoticeSentAt: null },
+            data: { aiNoticeSentAt: new Date() },
+        });
     }
 
     async recentContext(leadId: string, limit: number): Promise<ContextRow[]> {

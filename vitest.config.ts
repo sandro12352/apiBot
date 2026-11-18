@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig } from "vitest/config";
 import { resolveTestDatabaseUrl } from "./tests/helpers/test-db.ts";
 
@@ -28,6 +30,11 @@ export default defineConfig({
             META_APP_SECRET: "test-app-secret",
             META_WEBHOOK_VERIFY_TOKEN: "test-verify-token",
             ENCRYPTION_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"),
+            // Imágenes del catálogo: carpeta temporal propia de los tests y una URL pública ficticia
+            // (WhatsApp nunca se llama: el envío se simula)
+            STORAGE_DIR: join(tmpdir(), "apibot-test-storage"),
+            PUBLIC_BASE_URL: "https://bot.example.test",
+            MEDIA_SIGNING_SECRET: "test-media-signing-secret",
         },
     },
 });

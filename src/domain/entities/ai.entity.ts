@@ -36,6 +36,8 @@ export interface AssistantInfo {
     businessRules: string | null;
     aiProvider: AIProviderName | null;
     aiModel: string | null;
+    // Primer mensaje que se envía a cada contacto nuevo; lo redacta la empresa (tenants.aiNoticeText)
+    welcomeMessage: string | null;
     isActive: boolean;
     updatedAt: Date;
 }
@@ -48,6 +50,13 @@ export interface UpsertAssistantInput {
     businessRules: string | null;
     aiProvider: AIProviderName | null;
     aiModel: string | null;
+    welcomeMessage: string;
+}
+
+export interface LeadRef {
+    id: string;
+    // true si el contacto ya recibió el mensaje de bienvenida de la empresa
+    welcomeSent: boolean;
 }
 
 export interface ContextRow {

@@ -1,5 +1,5 @@
 import { envs } from "../../config/envs";
-import { WhatsAppSender, type SendTextParams } from "../../config/adapters/whatsapp-sender";
+import { WhatsAppSender, type SendImageParams, type SendTextParams } from "../../config/adapters/whatsapp-sender";
 import { WhatsAppApiError, type PhoneNumberInfo, type WhatsAppAccount } from "../../config/adapters/whatsapp-account";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -34,7 +34,23 @@ export class WhatsAppCloudClient extends WhatsAppSender implements WhatsAppAccou
         };
     }
 
-    async sendText({ phoneNumberId, to, body, accessToken }: SendTextParams): Promise<{ messageId?: string }> {
+    sendText({ phoneNumberId, to, body, accessToken }: SendTextParams): Promise<{ messageId?: string }> {
+        return this.sendMessage(phoneNumberId, accessToken, { to, type: "text", text: { body } });
+    }
+
+    sendImage({ phoneNumberId, to, link, caption, accessToken }: SendImageParams): Promise<{ messageId?: string }> {
+        return this.sendMessage(phoneNumberId, accessToken, {
+            to,
+            type: "image",
+            image: caption ? { link, caption } : { link },
+        });
+    }
+
+    private async sendMessage(
+        phoneNumberId: string,
+        accessToken: string,
+        message: Record<string, unknown>,
+    ): Promise<{ messageId?: string }> {
         const url = `https://graph.facebook.com/${envs.META_GRAPH_API_VERSION}/${phoneNumberId}/messages`;
 
         let response: Response;
@@ -48,9 +64,7 @@ export class WhatsAppCloudClient extends WhatsAppSender implements WhatsAppAccou
                 body: JSON.stringify({
                     messaging_product: "whatsapp",
                     recipient_type: "individual",
-                    to,
-                    type: "text",
-                    text: { body },
+                    ...message,
                 }),
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });

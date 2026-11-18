@@ -263,6 +263,7 @@ model Tenant {
   knowledgeSources      KnowledgeSource[]
   knowledgeChunks       KnowledgeChunk[]
   catalogItems          CatalogItem[]
+  catalogImages         CatalogImage[]
   leads                 Lead[]
   testNumbers           TestNumber[]
   conversationContexts  ConversationContext[]
@@ -506,8 +507,9 @@ model CatalogItem {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   orderItems OrderItem[]
+  images     CatalogImage[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, status])
@@ -670,20 +672,20 @@ model UsageEvent {
 }
 
 model WebhookEvent {
-  id           String                @id @default(uuid())
-  tenantId     String?
-  connectionId String?
-  externalId   String
-  type         String
-  status       EventProcessingStatus @default(RECEIVED)
-  attempts     Int                   @default(0)
-  lastError    String?
+  id               String                @id @default(uuid())
+  tenantId         String?
+  connectionId     String?
+  externalId       String
+  type             String
+  status           EventProcessingStatus @default(RECEIVED)
+  attempts         Int                   @default(0)
+  lastError        String?
   // Evento normalizado y cifrado: solo existe mientras haya reintentos pendientes
   encryptedPayload String?
   // Cuándo puede (re)procesarlo el reprocesador; también hace de reserva mientras se procesa
   nextAttemptAt    DateTime?
-  receivedAt   DateTime              @default(now())
-  processedAt  DateTime?
+  receivedAt       DateTime              @default(now())
+  processedAt      DateTime?
 
   tenant     Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   connection WhatsappConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
@@ -715,4 +717,24 @@ model AuditLog {
   @@index([actorUserId])
   @@index([resourceType, resourceId])
   @@map("audit_logs")
+}
+
+// Imágenes de un producto del catálogo (máximo 5). El archivo vive en el almacenamiento privado
+// (disco del VPS o compatible con S3); aquí solo su clave, tipo y tamaño.
+model CatalogImage {
+  id         String   @id @default(uuid())
+  tenantId   String
+  itemId     String
+  storageKey String   @unique
+  mimeType   String
+  sizeBytes  Int
+  position   Int
+  createdAt  DateTime @default(now())
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  item   CatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([itemId, position])
+  @@map("catalog_images")
 }

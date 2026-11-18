@@ -308,7 +308,7 @@ export class AuthService {
     async sendAccountSetupEmail(user: UserEntity): Promise<void> {
         try {
             const token = await this.issueToken(user.id, 'PASSWORD_RESET', ACCOUNT_SETUP_TTL_MS);
-            const link = `${this.appUrl}/set-password?token=${token}`;
+            const link = `${this.appUrl}/activate?token=${token}`;
             const { subject, text, html } = renderAccountSetupEmail({
                 appName: this.appName,
                 link,
@@ -333,7 +333,7 @@ export class AuthService {
             if (!user || !user.passwordHash || user.status === 'SUSPENDED') return;
 
             const token = await this.issueToken(user.id, 'PASSWORD_RESET', PASSWORD_RESET_TTL_MS);
-            const link = `${this.appUrl}/reset-password?token=${token}`;
+            const link = `${this.appUrl}/set-password?token=${token}`;
             this.sendEmail(
                 user.email,
                 'Recupera tu contraseña',

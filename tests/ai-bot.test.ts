@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./helpers/api";
 import { prisma, resetDb } from "./helpers/db";
-import { AI_API_KEY, createAiSetup, createWhatsappConnection, WA_PHONE_NUMBER_ID } from "./helpers/seed";
+import { AI_API_KEY, createAiSetup, createWhatsappConnection, WA_PHONE_NUMBER_ID, WELCOME_MESSAGE } from "./helpers/seed";
 import { AIProviderError } from "../src/config/adapters/ai-provider";
 import { AesGcmAdapter } from "../src/config/adapters/aes-gcm.adapter";
 import { CONTEXT_TTL_DAYS, MAX_CONTEXT_MESSAGES, ReplySkipped } from "../src/domain";
@@ -29,6 +29,9 @@ beforeEach(async () => {
     sendText = vi.spyOn(WhatsAppCloudClient.prototype, "sendText").mockResolvedValue({ messageId: "wamid.OUT" });
 });
 afterEach(() => vi.restoreAllMocks());
+
+// Textos enviados por WhatsApp, en orden
+const sentBodies = (): string[] => sendText.mock.calls.map((call: unknown[]) => (call[0] as { body: string }).body);
 
 const handler = buildAiConversationHandler();
 const inbound = (tenantId: string, connectionId: string, text = "hola", isTest = false) => ({
@@ -60,6 +63,16 @@ describe("cuándo responde", () => {
         expect(await prisma.usageEvent.count()).toBe(0);
     });
 
+    it("sin mensaje de bienvenida no responde y deja el motivo", async () => {
+        const { tenant, connection } = await ready({ welcomeMessage: null });
+
+        const error = await handler.handle(inbound(tenant.id, connection.id)).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ReplySkipped);
+        expect((error as ReplySkipped).reason).toContain("welcome message");
+        expect(generate).not.toHaveBeenCalled();
+    });
+
     it("una empresa sin configurar no usa la clave de otra", async () => {
         await ready();
         const other = await createWhatsappConnection({ phoneNumberId: "999000111222333" });
@@ -75,7 +88,8 @@ describe("respuesta con IA", () => {
 
         const reply = await handler.handle(inbound(tenant.id, connection.id, "hola"));
 
-        expect(reply).toBe(REPLY);
+        // Sin catálogo no hay fotos: solo el texto
+        expect(reply).toEqual({ text: REPLY, images: [] });
         const call = generate.mock.calls[0]![0] as { apiKey: string; model: string; systemPrompt: string; messages: unknown[] };
         expect(call.apiKey).toBe(AI_API_KEY);
         expect(call.model).toBe("gemini-test-model");
@@ -117,7 +131,7 @@ describe("respuesta con IA", () => {
 
         const reply = await handler.handle(inbound(tenant.id, connection.id, "x".repeat(9000)));
 
-        expect(reply).toHaveLength(4096);
+        expect((reply as { text: string }).text).toHaveLength(4096);
         const messages = (generate.mock.calls[0]![0] as { messages: { content: string }[] }).messages;
         expect(messages.at(-1)!.content).toHaveLength(4000);
     });
@@ -295,10 +309,14 @@ describe("de punta a punta por el webhook", () => {
 
     it("responde con la IA por WhatsApp y guarda el contexto después de enviar", async () => {
         await ready();
-
-        expect((await post(textPayload("wamid.AI1", "hola"))).status).toBe(200);
-
+        // Primer mensaje: solo bienvenida. El siguiente es el que responde la IA.
+        await post(textPayload("wamid.W0", "hola"));
         await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(2));
+        sendText.mockClear();
+
+        expect((await post(textPayload("wamid.AI1", "¿qué venden?"))).status).toBe(200);
+
+        await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(4));
         expect(sendText).toHaveBeenCalledWith(expect.objectContaining({ to: CUSTOMER, body: REPLY }));
         expect((await prisma.webhookEvent.findFirstOrThrow({ where: { externalId: "wamid.AI1" } })).status).toBe("PROCESSED");
         expect(await prisma.usageEvent.count()).toBe(1);
@@ -315,10 +333,66 @@ describe("de punta a punta por el webhook", () => {
         });
         expect(await prisma.conversationContext.count()).toBe(0);
 
-        // Meta reenvía: ahora el envío funciona
+        // Meta reenvía: ahora el envío funciona. Se reintenta la bienvenida, que no se había marcado.
         await post(body);
         await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(2));
-        expect(sendText).toHaveBeenCalledTimes(2);
+        expect(sentBodies()).toEqual([WELCOME_MESSAGE, WELCOME_MESSAGE]);
+        expect(generate).not.toHaveBeenCalled();
+    });
+
+    it("el primer mensaje recibe solo la bienvenida, sin llamar a la IA; el siguiente recibe la respuesta", async () => {
+        await ready();
+
+        await post(textPayload("wamid.W1", "hola"));
+        await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(2));
+
+        // Solo la bienvenida, tal cual la redactó la empresa, y ninguna llamada a la IA
+        expect(sentBodies()).toEqual([WELCOME_MESSAGE]);
+        expect(generate).not.toHaveBeenCalled();
+        expect(await prisma.usageEvent.count()).toBe(0);
+        expect((await prisma.lead.findFirstOrThrow()).aiNoticeSentAt).not.toBeNull();
+
+        sendText.mockClear();
+        await post(textPayload("wamid.W2", "¿y el sábado?"));
+        await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(4));
+
+        expect(sentBodies()).toEqual([REPLY]);
+        expect(generate).toHaveBeenCalledTimes(1);
+        // La IA recibe el primer mensaje del cliente y la bienvenida ya enviada, así no vuelve a saludar
+        const history = generate.mock.calls[0]![0] as { messages: { role: string; content: string }[] };
+        expect(history.messages).toEqual([
+            { role: "user", content: "hola" },
+            { role: "assistant", content: WELCOME_MESSAGE },
+            { role: "user", content: "¿y el sábado?" },
+        ]);
+    });
+
+    it("sin mensaje de bienvenida el bot no responde y el evento explica el motivo", async () => {
+        await ready({ welcomeMessage: null });
+
+        await post(textPayload("wamid.W3", "hola"));
+
+        await vi.waitFor(async () => {
+            const event = await prisma.webhookEvent.findFirstOrThrow({ where: { externalId: "wamid.W3" } });
+            expect(event.status).toBe("IGNORED");
+            expect(event.lastError).toContain("welcome message");
+        });
+        expect(sendText).not.toHaveBeenCalled();
+        expect(generate).not.toHaveBeenCalled();
+    });
+
+    it("cada contacto recibe su propia bienvenida", async () => {
+        await ready();
+        await post(textPayload("wamid.W4", "hola"));
+        await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(2));
+        sendText.mockClear();
+
+        const payload = JSON.parse(textPayload("wamid.W5", "hola"));
+        payload.entry[0].changes[0].value.messages[0].from = "51900000111";
+        await post(JSON.stringify(payload));
+
+        await vi.waitFor(() => expect(sendText).toHaveBeenCalledTimes(1));
+        expect((sendText.mock.calls[0]![0] as { body: string }).body).toBe(WELCOME_MESSAGE);
     });
 
     it("sin configuración de IA el bot no responde y el evento queda ignorado", async () => {
@@ -334,9 +408,13 @@ describe("de punta a punta por el webhook", () => {
 
     it("si el proveedor rechaza la petición, el evento queda ignorado con el motivo en lastError", async () => {
         await ready();
+        // El primer mensaje solo recibe la bienvenida; el rechazo se prueba en el siguiente
+        await post(textPayload("wamid.W0b", "hola"));
+        await vi.waitFor(async () => expect(await prisma.conversationContext.count()).toBe(2));
+        sendText.mockClear();
         generate.mockRejectedValueOnce(new AIProviderError("invalid_request", 404));
 
-        await post(textPayload("wamid.AI4", "hola"));
+        await post(textPayload("wamid.AI4", "¿qué venden?"));
 
         await vi.waitFor(async () => {
             const event = await prisma.webhookEvent.findFirstOrThrow({ where: { externalId: "wamid.AI4" } });

@@ -22,6 +22,10 @@ describe("documentación Swagger en /docs", () => {
             "/tenants/{tenantId}/ai-credentials/{provider}",
             "/tenants/{tenantId}/ai-credentials/{provider}/models",
             "/tenants/{tenantId}/assistant",
+            "/tenants/{tenantId}/knowledge",
+            "/tenants/{tenantId}/knowledge/{id}",
+            "/tenants/{tenantId}/catalog",
+            "/tenants/{tenantId}/catalog/{id}/images",
             "/admin/clients",
         ]) {
             expect(res.body.paths, path).toHaveProperty(path);

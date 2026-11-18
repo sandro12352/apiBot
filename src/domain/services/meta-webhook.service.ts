@@ -13,12 +13,18 @@ import type {
 import type { WhatsappConnectionState } from "../entities/whatsapp-connection.entity";
 import type { MetaWebhookRepository } from "../repositories/meta-webhook.repository";
 import type { AuditService } from "./audit.service";
-import { ReplySkipped, type InboundMessageHandler } from "./inbound-message.handler";
+import { ReplySkipped, type BotReply, type InboundMessageHandler, type OutgoingImage } from "./inbound-message.handler";
+import type { MediaUrlSigner } from "../../config/adapters/media-url-signer";
 
 export interface MetaWebhookOptions {
     appSecret?: string | undefined;
     verifyToken?: string | undefined;
+    // Enlaces firmados para que WhatsApp descargue las fotos de productos
+    mediaUrls?: MediaUrlSigner | undefined;
 }
+
+// Tiempo que vale el enlace de una foto: Meta la descarga al recibir el mensaje
+const MEDIA_LINK_TTL_SECONDS = 10 * 60;
 
 // Tope de intentos de un mismo evento. Meta reintenta hasta 7 días: sin tope un evento roto
 // se procesaría para siempre.
@@ -232,41 +238,55 @@ export class MetaWebhookService {
                 text: event.text,
                 isTest: connection.tenant.botMode === "TEST",
             };
-            let reply: string | null;
+            // Primer mensaje del contacto: solo la bienvenida de la empresa; la IA responde desde el siguiente
+            const welcome = await this.handler.welcome(inbound);
+            if (welcome !== null) {
+                await this.sender.sendText({
+                    phoneNumberId: connection.phoneNumberId,
+                    to: event.from,
+                    body: welcome,
+                    accessToken: this.accessTokenOf(connection),
+                });
+                // Si esto falla, el evento se reintenta y la bienvenida se envía de nuevo; no se pierde
+                await this.handler.welcomeSent(inbound, welcome).catch((error: unknown) => {
+                    console.error("[MetaWebhook] welcomeSent failed", error instanceof Error ? error.name : "unknown");
+                });
+                if (messageStateId) await this.repository.markMessageSent(messageStateId);
+                await this.repository.finishEvent(eventId, "PROCESSED");
+                return;
+            }
+
+            let result: string | BotReply | null;
             try {
-                reply = await this.handler.handle(inbound);
+                result = await this.handler.handle(inbound);
             } catch (error) {
                 if (!(error instanceof ReplySkipped)) throw error;
                 await this.repository.finishEvent(eventId, "IGNORED", error.reason.slice(0, 300));
                 return;
             }
-            if (reply === null) {
+            if (result === null) {
                 await this.repository.finishEvent(eventId, "IGNORED");
                 return;
             }
-
-            if (!connection.encryptedAccessToken) {
-                throw new ConnectionCredentialError("Connection has no access token");
-            }
-            let accessToken: string;
-            try {
-                accessToken = this.encryptor.decrypt(connection.encryptedAccessToken);
-            } catch {
-                throw new ConnectionCredentialError("The stored access token could not be read");
-            }
+            const reply: BotReply = typeof result === "string" ? { text: result, images: [] } : result;
+            const accessToken = this.accessTokenOf(connection);
 
             await this.sender.sendText({
                 phoneNumberId: connection.phoneNumberId,
                 to: event.from,
-                body: reply,
+                body: reply.text,
                 accessToken,
             });
+
+            // Después del texto, las fotos de los productos. El texto ya salió: si una foto falla
+            // no se reintenta el evento (duplicaría el texto), solo se registra.
+            await this.sendImages(connection.phoneNumberId, event.from, accessToken, reply.images);
 
             if (messageStateId) await this.repository.markMessageSent(messageStateId);
             await this.repository.finishEvent(eventId, "PROCESSED");
 
             // La respuesta ya salió: guardar el contexto es secundario y su fallo no la revierte
-            await this.handler.afterSent(inbound, reply).catch((error: unknown) => {
+            await this.handler.afterSent(inbound, reply.text).catch((error: unknown) => {
                 console.error("[MetaWebhook] afterSent failed", error instanceof Error ? error.name : "unknown");
             });
         } catch (error) {
@@ -278,6 +298,33 @@ export class MetaWebhookService {
             const delay = RETRY_DELAYS_MS[attempts - 1];
             const retryAt = retry && attempts < MAX_ATTEMPTS && delay !== undefined ? new Date(Date.now() + delay) : undefined;
             await this.repository.finishEvent(eventId, "FAILED", detail, retryAt);
+        }
+    }
+
+    private async sendImages(phoneNumberId: string, to: string, accessToken: string, images: OutgoingImage[]): Promise<void> {
+        if (images.length === 0) return;
+        if (!this.options.mediaUrls?.isEnabled) {
+            console.warn("[MetaWebhook] PUBLIC_BASE_URL is not set: product images were not sent");
+            return;
+        }
+        for (const image of images) {
+            const link = this.options.mediaUrls.sign(image.storageKey, MEDIA_LINK_TTL_SECONDS);
+            if (!link) return;
+            await this.sender.sendImage({ phoneNumberId, to, link, caption: image.caption, accessToken }).catch((error: unknown) => {
+                console.error("[MetaWebhook] image send failed", error instanceof Error ? error.message : "unknown");
+            });
+        }
+    }
+
+    // Token de la conexión, descifrado. Sin token o ilegible es un problema de credenciales de la conexión.
+    private accessTokenOf(connection: WebhookConnection): string {
+        if (!connection.encryptedAccessToken) {
+            throw new ConnectionCredentialError("Connection has no access token");
+        }
+        try {
+            return this.encryptor.decrypt(connection.encryptedAccessToken);
+        } catch {
+            throw new ConnectionCredentialError("The stored access token could not be read");
         }
     }
 

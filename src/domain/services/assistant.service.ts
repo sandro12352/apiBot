@@ -40,6 +40,7 @@ export class AssistantService {
                 businessRules: dto.businessRules,
                 aiProvider: dto.aiProvider,
                 aiModel: dto.aiModel,
+                welcomeMessage: dto.welcomeMessage,
             });
 
             // Sin el contenido de las instrucciones: solo constancia del cambio

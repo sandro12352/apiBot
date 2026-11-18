@@ -13,6 +13,8 @@ const optionalText = (max: number) =>
 const schema = z.object({
     name: z.string().trim().min(1).max(100),
     instructions: z.string().trim().min(1).max(8000),
+    // Obligatorio: sin mensaje de bienvenida el bot no responde. Lo redacta la empresa, tal cual se envía.
+    welcomeMessage: z.string().trim().min(1).max(1000),
     language: z.string().trim().regex(/^[a-z]{2}(-[A-Za-z]{2})?$/, "must be a language code such as es or es-PE").default("es"),
     tone: optionalText(200),
     businessRules: optionalText(4000),
@@ -34,6 +36,7 @@ export class UpsertAssistantDto {
         public readonly businessRules: string | null,
         public readonly aiProvider: AIProviderName | null,
         public readonly aiModel: string | null,
+        public readonly welcomeMessage: string,
     ) {}
 
     static create(body: unknown): [string[] | undefined, UpsertAssistantDto | undefined] {
@@ -46,7 +49,7 @@ export class UpsertAssistantDto {
             return [errors, undefined];
         }
 
-        const { name, instructions, language, tone, businessRules, aiProvider, aiModel } = result.data;
-        return [undefined, new UpsertAssistantDto(name, instructions, language, tone, businessRules, aiProvider, aiModel)];
+        const { name, instructions, language, tone, businessRules, aiProvider, aiModel, welcomeMessage } = result.data;
+        return [undefined, new UpsertAssistantDto(name, instructions, language, tone, businessRules, aiProvider, aiModel, welcomeMessage)];
     }
 }

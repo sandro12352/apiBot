@@ -92,6 +92,8 @@ export const openApiDocument: Json = {
         { name: "WhatsApp" },
         { name: "Claves de IA" },
         { name: "Asistente" },
+        { name: "Conocimiento", description: "FAQ (pregunta + respuesta) y textos (tema + contenido) que la IA usa para responder." },
+        { name: "Catálogo", description: "Productos con precio oficial e imágenes. El bot responde con estos datos y envía hasta 3 fotos después del texto." },
         { name: "Plataforma (admin)" },
     ],
     components: {
@@ -136,6 +138,36 @@ export const openApiDocument: Json = {
                 preferredModel: { type: ["string", "null"] },
                 statusDetail: { type: ["string", "null"] },
             }),
+            KnowledgeEntry: obj({
+                id: str({ format: "uuid" }),
+                type: str({ enum: ["FAQ", "TEXT"], description: "FAQ: title es la pregunta y content la respuesta. TEXT: title es el tema." }),
+                title: str({ maxLength: 200 }),
+                content: str({ maxLength: 4000, description: "Admite el formato de WhatsApp: *negrita*, _cursiva_, ~tachado~, listas y saltos de línea." }),
+                isActive: { type: "boolean", description: "Solo las entradas activas llegan a la IA" },
+                createdAt: str({ format: "date-time" }),
+                updatedAt: str({ format: "date-time" }),
+            }),
+            CatalogImage: obj({
+                id: str({ format: "uuid" }),
+                position: { type: "integer", description: "Orden de la imagen (0 = principal)" },
+                mimeType: str({ enum: ["image/jpeg", "image/png", "image/webp"] }),
+                sizeBytes: { type: "integer" },
+                url: { type: ["string", "null"], description: "Enlace firmado que vence en 1 hora; null si el servidor no tiene PUBLIC_BASE_URL" },
+            }),
+            CatalogItem: obj({
+                id: str({ format: "uuid" }),
+                sku: { type: ["string", "null"] },
+                name: str(),
+                description: { type: ["string", "null"] },
+                price: str({ example: "4569.00", description: "Decimal con 2 cifras, como texto" }),
+                currency: str({ example: "PEN" }),
+                category: { type: ["string", "null"] },
+                attributes: { type: ["object", "null"], additionalProperties: { type: ["string", "number", "boolean"] }, example: { color: "negro", capacidad: "256GB" } },
+                status: str({ enum: ["ACTIVE", "INACTIVE"] }),
+                images: { type: "array", items: ref("CatalogImage"), maxItems: 5 },
+                createdAt: str({ format: "date-time" }),
+                updatedAt: str({ format: "date-time" }),
+            }),
             AiModel: obj({ id: str({ example: "gemini-3.1-flash-lite" }), displayName: str() }, ["id"]),
             Assistant: obj({
                 id: str({ format: "uuid" }),
@@ -146,6 +178,10 @@ export const openApiDocument: Json = {
                 businessRules: { type: ["string", "null"] },
                 aiProvider: { type: ["string", "null"], enum: ["OPENAI", "ANTHROPIC", "GEMINI", null] },
                 aiModel: { type: ["string", "null"] },
+                welcomeMessage: {
+                    type: ["string", "null"],
+                    description: "Único mensaje que recibe cada contacto nuevo como primera respuesta. Lo redacta la empresa y se envía tal cual.",
+                },
             }),
         },
     },
@@ -360,25 +396,152 @@ export const openApiDocument: Json = {
                 errors: [401, 403, 404],
             }),
             put: operation("Asistente", "Crear o actualizar el asistente", {
-                description: `${ADMIN} Sin asistente y sin clave en estado VALID el bot no responde. Si no hay \`aiModel\` se usa el \`preferredModel\` de la clave.`,
+                description: `${ADMIN} Sin asistente, sin clave en estado VALID o sin \`welcomeMessage\` el bot no responde. Si no hay \`aiModel\` se usa el \`preferredModel\` de la clave. El \`welcomeMessage\` es obligatorio: el primer mensaje de cada contacto recibe solo esta bienvenida (sin respuesta de la IA), tal cual la redacta la empresa; la IA responde a partir del siguiente mensaje.`,
                 parameters: [tenantId],
                 requestBody: body(
                     obj(
                         {
                             name: str({ maxLength: 100 }),
                             instructions: str({ maxLength: 8000 }),
+                            welcomeMessage: str({ minLength: 1, maxLength: 1000, description: "Mensaje de bienvenida (obligatorio)" }),
                             language: str({ default: "es", description: "es o es-PE" }),
                             tone: { type: ["string", "null"], maxLength: 200 },
                             businessRules: { type: ["string", "null"], maxLength: 4000 },
                             aiProvider: { type: ["string", "null"], enum: ["OPENAI", "ANTHROPIC", "GEMINI", null] },
                             aiModel: { type: ["string", "null"] },
                         },
-                        ["name", "instructions"],
+                        ["name", "instructions", "welcomeMessage"],
                     ),
-                    { name: "Asistente de Mi Empresa", instructions: "Eres el asistente de Mi Empresa. Responde breve y amable.", language: "es", aiModel: "gemini-3.1-flash-lite" },
+                    {
+                        name: "Asistente de Mi Empresa",
+                        instructions: "Eres el asistente de Mi Empresa. Responde breve y amable.",
+                        welcomeMessage: "¡Hola! 👋 Gracias por escribir a Mi Empresa. ¿En qué te ayudamos?",
+                        language: "es",
+                        aiModel: "gemini-3.1-flash-lite",
+                    },
                 ),
                 success: ok("Asistente guardado", ref("Assistant")),
                 errors: [400, 401, 403, 404],
+            }),
+        },
+
+        // ---------- Conocimiento ----------
+        "/tenants/{tenantId}/knowledge": {
+            get: operation("Conocimiento", "Listar FAQ y textos", {
+                description: ADMIN,
+                parameters: [tenantId, { name: "type", in: "query", required: false, schema: str({ enum: ["FAQ", "TEXT"] }) }],
+                success: ok("Entradas, de la más reciente a la más antigua", { type: "array", items: ref("KnowledgeEntry") }),
+                errors: [400, 401, 403, 404],
+            }),
+            post: operation("Conocimiento", "Crear una FAQ o un texto", {
+                description: `${ADMIN} Máximo 300 entradas por empresa (409 al superarlo).`,
+                parameters: [tenantId],
+                requestBody: body(
+                    obj(
+                        {
+                            type: str({ enum: ["FAQ", "TEXT"] }),
+                            title: str({ minLength: 1, maxLength: 200 }),
+                            content: str({ minLength: 1, maxLength: 4000 }),
+                            isActive: { type: "boolean", default: true },
+                        },
+                        ["type", "title", "content"],
+                    ),
+                    { type: "FAQ", title: "¿Hacen envíos a provincia?", content: "Sí, por *Olva Courier*, de 2 a 4 días hábiles. Costo: S/ 15." },
+                ),
+                success: ok("Entrada creada", ref("KnowledgeEntry"), "201"),
+                errors: [400, 401, 403, 404, 409],
+            }),
+        },
+        "/tenants/{tenantId}/knowledge/{id}": {
+            get: operation("Conocimiento", "Ver una entrada", {
+                description: ADMIN,
+                parameters: [tenantId, id],
+                success: ok("Entrada", ref("KnowledgeEntry")),
+                errors: [401, 403, 404],
+            }),
+            patch: operation("Conocimiento", "Editar o activar/desactivar una entrada", {
+                description: `${ADMIN} Envía al menos un campo. El tipo no se puede cambiar.`,
+                parameters: [tenantId, id],
+                requestBody: body(obj({ title: str({ maxLength: 200 }), content: str({ maxLength: 4000 }), isActive: { type: "boolean" } })),
+                success: ok("Entrada actualizada", ref("KnowledgeEntry")),
+                errors: [400, 401, 403, 404],
+            }),
+            delete: operation("Conocimiento", "Borrar una entrada", {
+                description: ADMIN,
+                parameters: [tenantId, id],
+                success: noContent,
+                errors: [401, 403, 404],
+            }),
+        },
+
+        // ---------- Catálogo ----------
+        "/tenants/{tenantId}/catalog": {
+            get: operation("Catálogo", "Listar productos", {
+                description: ADMIN,
+                parameters: [
+                    tenantId,
+                    { name: "status", in: "query", required: false, schema: str({ enum: ["ACTIVE", "INACTIVE"] }) },
+                    { name: "category", in: "query", required: false, schema: str() },
+                ],
+                success: ok("Productos, del más reciente al más antiguo", { type: "array", items: ref("CatalogItem") }),
+                errors: [400, 401, 403, 404],
+            }),
+            post: operation("Catálogo", "Crear un producto", {
+                description: `${ADMIN} El SKU es opcional pero único por empresa (409 si se repite). Las imágenes se suben después.`,
+                parameters: [tenantId],
+                requestBody: body(
+                    obj(
+                        {
+                            sku: str({ pattern: "^[A-Za-z0-9._-]{1,64}$" }),
+                            name: str({ minLength: 1, maxLength: 200 }),
+                            description: str({ maxLength: 2000 }),
+                            price: { type: "number", minimum: 0, description: "Hasta 2 decimales" },
+                            currency: str({ default: "PEN", pattern: "^[A-Z]{3}$" }),
+                            category: str({ maxLength: 100 }),
+                            attributes: { type: "object", additionalProperties: { type: ["string", "number", "boolean"] }, maxProperties: 20 },
+                            status: str({ enum: ["ACTIVE", "INACTIVE"], default: "ACTIVE" }),
+                        },
+                        ["name", "price"],
+                    ),
+                    { sku: "IP15PM-256", name: "iPhone 15 Pro Max 256GB", price: 4569, category: "Celulares", attributes: { color: "titanio negro" } },
+                ),
+                success: ok("Producto creado", ref("CatalogItem"), "201"),
+                errors: [400, 401, 403, 404, 409],
+            }),
+        },
+        "/tenants/{tenantId}/catalog/{id}": {
+            get: operation("Catálogo", "Ver un producto", { description: ADMIN, parameters: [tenantId, id], success: ok("Producto", ref("CatalogItem")), errors: [401, 403, 404] }),
+            patch: operation("Catálogo", "Editar un producto", {
+                description: `${ADMIN} Envía solo los campos a cambiar; null o "" limpia los opcionales.`,
+                parameters: [tenantId, id],
+                requestBody: body(obj({ name: str(), price: { type: "number" }, status: str({ enum: ["ACTIVE", "INACTIVE"] }) })),
+                success: ok("Producto actualizado", ref("CatalogItem")),
+                errors: [400, 401, 403, 404, 409],
+            }),
+            delete: operation("Catálogo", "Borrar un producto y sus imágenes", { description: ADMIN, parameters: [tenantId, id], success: noContent, errors: [401, 403, 404] }),
+        },
+        "/tenants/{tenantId}/catalog/{id}/images": {
+            post: operation("Catálogo", "Subir una imagen del producto", {
+                description: `${ADMIN} El cuerpo es el archivo (no multipart), con Content-Type image/jpeg, image/png o image/webp. Máximo 5 MB y 5 imágenes por producto. Se comprueba el tipo real del archivo.`,
+                parameters: [tenantId, id],
+                requestBody: {
+                    required: true,
+                    content: {
+                        "image/jpeg": { schema: str({ format: "binary" }) },
+                        "image/png": { schema: str({ format: "binary" }) },
+                        "image/webp": { schema: str({ format: "binary" }) },
+                    },
+                },
+                success: ok("Producto con la imagen agregada", ref("CatalogItem"), "201"),
+                errors: [400, 401, 403, 404, 409],
+            }),
+        },
+        "/tenants/{tenantId}/catalog/{id}/images/{imageId}": {
+            delete: operation("Catálogo", "Borrar una imagen", {
+                description: ADMIN,
+                parameters: [tenantId, id, { name: "imageId", in: "path", required: true, schema: str({ format: "uuid" }) }],
+                success: noContent,
+                errors: [401, 403, 404],
             }),
         },
 

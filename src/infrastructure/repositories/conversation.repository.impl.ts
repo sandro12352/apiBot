@@ -1,10 +1,14 @@
-import type { ContextRow, ConversationDatasource, ConversationRepository, UsageInput } from "../../domain";
+import type { ContextRow, ConversationDatasource, ConversationRepository, LeadRef, UsageInput } from "../../domain";
 
 export class ConversationRepositoryImpl implements ConversationRepository {
     constructor(private readonly datasource: ConversationDatasource) {}
 
-    upsertLead(tenantId: string, connectionId: string, whatsappNumber: string, isTest: boolean): Promise<string> {
+    upsertLead(tenantId: string, connectionId: string, whatsappNumber: string, isTest: boolean): Promise<LeadRef> {
         return this.datasource.upsertLead(tenantId, connectionId, whatsappNumber, isTest);
+    }
+
+    markWelcomeSent(connectionId: string, whatsappNumber: string): Promise<void> {
+        return this.datasource.markWelcomeSent(connectionId, whatsappNumber);
     }
 
     recentContext(leadId: string, limit: number): Promise<ContextRow[]> {

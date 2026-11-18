@@ -5,6 +5,8 @@ import {
     AssistantService,
     AuditService,
     AuthService,
+    CatalogService,
+    KnowledgeService,
     MemberService,
     MetaWebhookService,
     TenantService,
@@ -18,6 +20,13 @@ import { ConversationDatasourceImpl } from "../../infrastructure/datasource/conv
 import { AiCredentialRepositoryImpl } from "../../infrastructure/repositories/ai-credential.repository.impl";
 import { AssistantRepositoryImpl } from "../../infrastructure/repositories/assistant.repository.impl";
 import { ConversationRepositoryImpl } from "../../infrastructure/repositories/conversation.repository.impl";
+import { KnowledgeDatasourceImpl } from "../../infrastructure/datasource/knowledge.datasource.impl";
+import { KnowledgeRepositoryImpl } from "../../infrastructure/repositories/knowledge.repository.impl";
+import { CatalogDatasourceImpl } from "../../infrastructure/datasource/catalog.datasource.impl";
+import { CatalogRepositoryImpl } from "../../infrastructure/repositories/catalog.repository.impl";
+import { LocalDiskStorage } from "../../infrastructure/storage/local-disk.storage";
+import type { FileStorage } from "../../config/adapters/file-storage";
+import { MediaUrlSigner } from "../../config/adapters/media-url-signer";
 import { WhatsappConnectionDatasourceImpl } from "../../infrastructure/datasource/whatsapp-connection.datasource.impl";
 import { WhatsappConnectionRepositoryImpl } from "../../infrastructure/repositories/whatsapp-connection.repository.impl";
 import { AesGcmAdapter } from "../../config/adapters/aes-gcm.adapter";
@@ -95,15 +104,35 @@ const buildAiProviders = (): AIProviderRegistry => new AIProviderRegistry([new G
 export const buildConversationRepository = (): ConversationRepositoryImpl =>
     new ConversationRepositoryImpl(new ConversationDatasourceImpl());
 
+const buildKnowledgeRepository = (): KnowledgeRepositoryImpl =>
+    new KnowledgeRepositoryImpl(new KnowledgeDatasourceImpl());
+
+const buildCatalogRepository = (): CatalogRepositoryImpl =>
+    new CatalogRepositoryImpl(new CatalogDatasourceImpl());
+
+// Archivos privados en el disco del servidor (cambiar a R2/S3 = otro adaptador aquí)
+export const buildFileStorage = (): FileStorage => new LocalDiskStorage(envs.STORAGE_DIR);
+
+export const buildMediaUrlSigner = (): MediaUrlSigner =>
+    new MediaUrlSigner(envs.MEDIA_SIGNING_SECRET ?? envs.JWT_SECRET, envs.PUBLIC_BASE_URL);
+
 export const buildAiConversationHandler = (): AiConversationHandler =>
     new AiConversationHandler(
         new AssistantRepositoryImpl(new AssistantDatasourceImpl()),
         new AiCredentialRepositoryImpl(new AiCredentialDatasourceImpl()),
         buildConversationRepository(),
+        buildKnowledgeRepository(),
+        buildCatalogRepository(),
         buildAiProviders(),
         new AesGcmAdapter(),
         buildAuditService(),
     );
+
+export const buildKnowledgeService = (): KnowledgeService =>
+    new KnowledgeService(buildKnowledgeRepository(), buildAuditService());
+
+export const buildCatalogService = (): CatalogService =>
+    new CatalogService(buildCatalogRepository(), buildFileStorage(), buildMediaUrlSigner(), buildAuditService());
 
 export const buildAiCredentialService = (): AiCredentialService =>
     new AiCredentialService(
@@ -123,7 +152,7 @@ export const buildMetaWebhookService = (): MetaWebhookService =>
         buildAiConversationHandler(),
         new AesGcmAdapter(),
         buildAuditService(),
-        { appSecret: envs.META_APP_SECRET, verifyToken: envs.META_WEBHOOK_VERIFY_TOKEN },
+        { appSecret: envs.META_APP_SECRET, verifyToken: envs.META_WEBHOOK_VERIFY_TOKEN, mediaUrls: buildMediaUrlSigner() },
     );
 
 export const buildWhatsappConnectionService = (): WhatsappConnectionService =>

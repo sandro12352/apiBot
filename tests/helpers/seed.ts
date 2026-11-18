@@ -88,8 +88,11 @@ export const createWhatsappConnection = async (options: ConnectionOptions = {}) 
 };
 
 export const AI_API_KEY = "AIzaSy-clave-de-prueba-0123456789";
+export const WELCOME_MESSAGE = "¡Hola! 👋 Te damos la bienvenida a Zapatillas Lima. ¿En qué te ayudamos?";
 
 interface AiSetupOptions {
+    // null = la empresa no redactó su mensaje de bienvenida
+    welcomeMessage?: string | null;
     credentialStatus?: "PENDING" | "VALID" | "INVALID" | "QUOTA_EXCEEDED";
     withCredential?: boolean;
     withAssistant?: boolean;
@@ -111,6 +114,11 @@ export const createAiSetup = async (tenantId: string, options: AiSetupOptions = 
             },
         });
     }
+    // El mensaje de bienvenida vive en la empresa (tenants.aiNoticeText)
+    await prisma.tenant.update({
+        where: { id: tenantId },
+        data: { aiNoticeText: options.welcomeMessage === undefined ? WELCOME_MESSAGE : options.welcomeMessage },
+    });
     if (options.withAssistant ?? true) {
         await prisma.assistant.create({
             data: {
