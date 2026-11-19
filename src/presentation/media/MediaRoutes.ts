@@ -29,6 +29,9 @@ export class MediaRoutes {
                 const extension = key.slice(key.lastIndexOf(".") + 1);
                 res.setHeader("Content-Type", MIME_BY_EXTENSION[extension] ?? "application/octet-stream");
                 res.setHeader("Cache-Control", "private, max-age=300");
+                // helmet pone Cross-Origin-Resource-Policy: same-origin en todo; el panel (otro origen)
+                // no podría mostrar la imagen. El enlace firmado ya protege el acceso.
+                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
                 return res.send(data);
             } catch (error) {
                 console.error("[Media] read failed", error instanceof Error ? error.name : "error");
